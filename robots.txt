@@ -1,3 +1,3 @@
 User-agent: *
 
-Sitemap: https://cosmicray001.github.io/sitemap.xml
+Sitemap: https://imahmud98.github.io/sitemap.xml
