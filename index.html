@@ -37,7 +37,24 @@
 <body class="bg-gray-50 text-gray-800 min-h-screen">
 <script>
 // ── CONFIG — auto-updated by start.bat ───────────────────────────────────────
-const API = localStorage.getItem('tgdrive_api') || 'http://localhost:8000';
+// API URL is loaded fresh from api.txt on every page load.
+let API = 'http://localhost:8000';
+
+async function loadApiUrl() {
+  try {
+    const base = location.protocol === 'file:'
+      ? ''
+      : (location.origin + location.pathname.replace(/\/[^\/]*$/, ''));
+    const res = await fetch(base + '/api.txt', {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' }
+    });
+    if (res.ok) {
+      const url = (await res.text()).trim();
+      if (url.startsWith('http')) API = url;
+    }
+  } catch(e) { /* use localhost fallback */ }
+}
 
 // ── State ────────────────────────────────────────────────────────────────────
 const S = {
@@ -54,8 +71,9 @@ function getHash(){ return location.hash.replace('#/','') || ''; }
 function goTo(path){ location.hash = '#/' + path; }
 
 window.addEventListener('hashchange', route);
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   const hash = location.hash;
+  await loadApiUrl();
   if (hash.includes('reset-password')) { showView('reset-password'); return; }
   if (S.token) initApp();
   else showView('login');
