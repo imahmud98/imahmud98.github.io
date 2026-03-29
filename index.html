@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TGDrive</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:'Segoe UI',system-ui,sans-serif;}
+    .spinner{width:16px;height:16px;flex-shrink:0;border:2px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
+    .spinner-sm{width:12px;height:12px;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    .drop-zone.dragover{background:#eff6ff!important;outline:2px dashed #3b82f6;outline-offset:-4px;}
+    .fade-in{animation:fadeIn .15s ease;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:translateY(0);}}
+    input[type=checkbox]{cursor:pointer;accent-color:#3b82f6;width:15px;height:15px;}
+    .view{display:none;} .view.active{display:flex;}
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+<script>
+// ── CONFIG — set this to your Fly.io backend URL before deploying ─────────────
+const API = 'https://tgdrive-backend.fly.dev';
+// For local testing, change to: const API = 'http://localhost:8000';
+
+// ── State ────────────────────────────────────────────────────────────────────
+const S = {
+  token: localStorage.getItem('tgdrive_token') || null,
+  user: null,
+  folders:[], currentFolder:null, folderPath:[], files:[],
+  selectedIds: new Set(),
+  uploadQueue:[], isUploading:false,
+  downloadQueue:[], isDownloading:false,
+};
+
+// ── Router — hash-based ───────────────────────────────────────────────────────
+function getHash(){ return location.hash.replace('#/','') || ''; }
+function goTo(path){ location.hash = '#/' + path; }
+
+window.addEventListener('hashchange', route);
+window.addEventListener('DOMContentLoaded', () => {
+  // Handle reset-password link
+  const hash = location.hash;
+  if (hash.includes('reset-password')) { showView('reset-password'); return; }
+  if (S.token) initApp();
+  else goTo('login');
+});
+
+function route(){
+  const hash = getHash();
+  if (hash.startsWith('reset-password')) { showView('reset-password'); return; }
+  if (!S.token) {
+    if (hash === 'signup') showView('signup');
+    else if (hash === 'forgot-password') showView('forgot-password');
+    else showView('login');
+    return;
+  }
+  initApp();
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(method, path, body=null, isForm=false){
+  const h={};
+  if (S.token) h['Authorization']=`Bearer ${S.token}`;
+  if (body && !isForm) h['Content-Type']='application/json';
+  const res = await fetch(API+path, {
+    method, headers:h,
+    body: isForm?body:(body?JSON.stringify(body):null),
+  });
+  if (res.status===401){ logout(); return null; }
+  const ct = res.headers.get('content-type')||'';
+  if (ct.includes('application/json')){
+    const data=await res.json();
+    if (!res.ok) throw new Error(data.detail||JSON.stringify(data));
+    return data;
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res;
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+async function signup(username,email,full_name,phone,password){
+  const data=await api('POST','/auth/signup',{username,email,full_name,phone,password});
+  S.token=data.access_token; localStorage.setItem('tgdrive_token',S.token);
+  await initApp();
+}
+
+async function login(username,password){
+  const data=await api('POST','/auth/login',{username,password});
+  if(!data) return;
+  S.token=data.access_token; localStorage.setItem('tgdrive_token',S.token);
+  await initApp();
+}
+
+function logout(){
+  S.token=null; S.user=null; localStorage.removeItem('tgdrive_token');
+  goTo('login');
+}
+
+async function forgotPassword(email){
+  return await api('POST','/auth/forgot-password',{email});
+}
+
+async function resetPassword(token,new_password){
+  return await api('POST','/auth/reset-password',{token,new_password});
+}
+
+async function changePassword(current_password,new_password){
+  return await api('POST','/auth/change-password',{current_password,new_password});
+}
+
+// ── App init ─────────────────────────────────────────────────────────────────
+async function initApp(){
+  try{
+    S.user = await api('GET','/auth/me');
+    if (!S.user) return;
+    renderUserInfo();
+    const tgStatus = await api('GET','/telegram/status');
+    S.user.tg_authorized = tgStatus?.authorized||false;
+    if (!S.user.tg_authorized){ showView('tg-setup'); return; }
+    showView('app');
+    await loadAll();
+  } catch(e){ logout(); }
+}
+
+// ── Telegram ─────────────────────────────────────────────────────────────────
+async function tgSendCode(phone){ await api('POST','/telegram/send-code',{phone}); }
+async function tgSignIn(phone,code,password=null){
+  const body={phone,code}; if(password) body.password=password;
+  await api('POST','/telegram/sign-in',body);
+  S.user.tg_authorized=true;
+}
+async function tgSignOut(){
+  await api('POST','/telegram/sign-out');
+  S.user.tg_authorized=false;
+  showView('tg-setup');
+}
+
+// ── Drive logic ───────────────────────────────────────────────────────────────
+async function loadFolders(){
+  const p=S.currentFolder?.id??null, q=p!==null?`?parent_id=${p}`:'';
+  S.folders=await api('GET',`/folders${q}`)||[]; renderFolders();
+}
+async function createFolder(name){
+  await api('POST','/folders',{name,parent_id:S.currentFolder?.id??null}); await loadFolders();
+}
+async function deleteFolder(id){
+  if(!confirm('Delete folder?')) return;
+  await api('DELETE',`/folders/${id}`); S.selectedIds.delete('f'+id); await loadFolders();
+}
+function openFolder(f){ S.folderPath.push(f); S.currentFolder=f; S.selectedIds.clear(); loadAll(); }
+function openFolderById(id){ const f=window._fm&&window._fm[id]; if(f) openFolder(f); }
+function nav(i){
+  if(i===-1){S.folderPath=[];S.currentFolder=null;}
+  else{S.folderPath=S.folderPath.slice(0,i+1);S.currentFolder=S.folderPath[i];}
+  S.selectedIds.clear(); loadAll();
+}
+
+async function loadFiles(){
+  const p=S.currentFolder?.id??null, q=p!==null?`?folder_id=${p}`:'';
+  S.files=await api('GET',`/files${q}`)||[]; renderFiles(); renderSelBar();
+}
+async function loadAll(){ renderBreadcrumb(); await Promise.all([loadFolders(),loadFiles()]); }
+
+async function deleteFile(id){
+  if(!confirm('Delete this file?')) return;
+  await api('DELETE',`/files/${id}`); S.selectedIds.delete(id); await loadFiles();
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+function toggleSel(id){
+  S.selectedIds.has(id)?S.selectedIds.delete(id):S.selectedIds.add(id);
+  renderFiles(); renderSelBar();
+}
+function selAll(){
+  const all=S.files.every(f=>S.selectedIds.has(f.id));
+  S.files.forEach(f=>all?S.selectedIds.delete(f.id):S.selectedIds.add(f.id));
+  renderFiles(); renderSelBar();
+}
+function clearSel(){ S.selectedIds.clear(); renderFiles(); renderSelBar(); }
+
+async function deleteSelected(){
+  const ids=[...S.selectedIds].filter(id=>typeof id==='number');
+  if(!ids.length||!confirm(`Delete ${ids.length} file(s)?`)) return;
+  for(const id of ids){try{await api('DELETE',`/files/${id}`);}catch{} S.selectedIds.delete(id);}
+  await loadFiles(); toast(`${ids.length} file(s) deleted`,'success');
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+function enqueueFiles(files){
+  S.uploadQueue.push(...Array.from(files).map(f=>({file:f,status:'pending',error:''})));
+  showModal('upload-modal'); renderUploadQ();
+  if(!S.isUploading) processUploads();
+}
+async function processUploads(){
+  S.isUploading=true;
+  const q=S.currentFolder?.id!=null?`?folder_id=${S.currentFolder.id}`:'';
+  for(const item of S.uploadQueue){
+    if(item.status!=='pending') continue;
+    item.status='uploading'; renderUploadQ();
+    try{
+      const form=new FormData(); form.append('file',item.file);
+      await api('POST',`/files/upload${q}`,form,true); item.status='done';
+    }catch(e){item.status='error';item.error=e.message;}
+    renderUploadQ();
+  }
+  S.isUploading=false; await loadFiles();
+  if(!S.uploadQueue.some(i=>i.status==='error'))
+    setTimeout(()=>{hideModal('upload-modal');S.uploadQueue=[];},800);
+}
+function clearUploadQ(){ if(S.isUploading)return; S.uploadQueue=[]; hideModal('upload-modal'); }
+
+// ── Download ──────────────────────────────────────────────────────────────────
+async function downloadSelected(){
+  const ids=[...S.selectedIds].filter(id=>typeof id==='number');
+  if(!ids.length) return;
+  S.downloadQueue=ids.map(id=>{const f=S.files.find(f=>f.id===id);return{id,name:f?.name||'file',status:'pending'};});
+  showModal('download-modal'); renderDownloadQ(); await runDownloads();
+}
+async function downloadFile(id,name){
+  S.downloadQueue=[{id,name,status:'pending'}]; showModal('download-modal'); renderDownloadQ(); await runDownloads();
+}
+async function runDownloads(){
+  S.isDownloading=true;
+  for(const item of S.downloadQueue){
+    item.status='downloading'; renderDownloadQ();
+    try{
+      const res=await api('GET',`/files/${item.id}/download`);
+      const blob=await res.blob(), url=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url; a.download=item.name; a.click(); URL.revokeObjectURL(url);
+      item.status='done';
+    }catch(e){item.status='error';item.error=e.message;}
+    renderDownloadQ();
+    await new Promise(r=>setTimeout(r,400));
+  }
+  S.isDownloading=false;
+  if(!S.downloadQueue.some(i=>i.status==='error'))
+    setTimeout(()=>{hideModal('download-modal');S.downloadQueue=[];},900);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(2)+' GB';}
+function fmtDate(iso){if(!iso)return'';const d=new Date(iso);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+function fileIcon(n){const e=(n||'').split('.').pop().toLowerCase();const m={pdf:'📄',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',svg:'🖼️',mp4:'🎬',mov:'🎬',avi:'🎬',mkv:'🎬',mp3:'🎵',wav:'🎵',flac:'🎵',zip:'🗜️',rar:'🗜️','7z':'🗜️',tar:'🗜️',gz:'🗜️',doc:'📝',docx:'📝',txt:'📝',md:'📝',xls:'📊',xlsx:'📊',csv:'📊',ppt:'📊',pptx:'📊',js:'💻',ts:'💻',py:'💻',html:'💻',css:'💻',json:'💻'};return m[e]||'📁';}
+function stIcon(s){if(s==='pending')return`<span class="text-gray-400 text-xs">Waiting</span>`;if(s==='uploading')return`<span class="flex items-center gap-1 text-blue-600 text-xs"><span class="spinner spinner-sm"></span>Uploading…</span>`;if(s==='downloading')return`<span class="flex items-center gap-1 text-blue-600 text-xs"><span class="spinner spinner-sm"></span>Downloading…</span>`;if(s==='done')return`<span class="text-green-600 text-xs font-medium">✓ Done</span>`;if(s==='error')return`<span class="text-red-500 text-xs font-medium">✕ Failed</span>`;return'';}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+let _tt;
+function toast(msg,type='info'){
+  const el=document.getElementById('toast');
+  const c={info:'bg-blue-600',error:'bg-red-600',success:'bg-green-600'};
+  el.className=`fixed bottom-5 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50 fade-in ${c[type]}`;
+  el.textContent=msg; el.classList.remove('hidden');
+  clearTimeout(_tt); _tt=setTimeout(()=>el.classList.add('hidden'),3500);
+}
+
+// ── Views ─────────────────────────────────────────────────────────────────────
+function showView(name){
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  const el=document.getElementById('view-'+name);
+  if(el) el.classList.add('active');
+}
+function showModal(id){document.getElementById(id).classList.remove('hidden');}
+function hideModal(id){document.getElementById(id).classList.add('hidden');}
+
+// ── Renders ───────────────────────────────────────────────────────────────────
+function renderUserInfo(){
+  const el=document.getElementById('user-info'); if(!el) return;
+  el.innerHTML=`<span class="text-sm font-medium text-gray-700">${esc(S.user?.full_name||S.user?.username)}</span>`;
+}
+
+function renderBreadcrumb(){
+  const el=document.getElementById('breadcrumb'); if(!el) return;
+  let h=`<button onclick="nav(-1)" class="text-blue-600 hover:underline font-medium">My Drive</button>`;
+  S.folderPath.forEach((f,i)=>{
+    h+=` <span class="text-gray-400">/</span> `;
+    h+=i===S.folderPath.length-1?`<span class="text-gray-700 font-medium">${esc(f.name)}</span>`:`<button onclick="nav(${i})" class="text-blue-600 hover:underline">${esc(f.name)}</button>`;
+  });
+  el.innerHTML=h;
+}
+
+function renderSelBar(){
+  const el=document.getElementById('sel-bar'); if(!el) return;
+  const cnt=[...S.selectedIds].filter(id=>typeof id==='number').length;
+  if(!cnt){el.classList.add('hidden');return;}
+  el.classList.remove('hidden');
+  el.innerHTML=`<div class="flex items-center gap-3 flex-wrap">
+    <span class="text-sm font-medium text-blue-700">${cnt} file${cnt>1?'s':''} selected</span>
+    <button onclick="downloadSelected()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">⬇️ Download</button>
+    <button onclick="deleteSelected()" class="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200">🗑 Delete</button>
+    <button onclick="clearSel()" class="text-xs text-gray-400 hover:text-gray-600 ml-auto">✕ Clear</button>
+  </div>`;
+}
+
+function renderFolders(){
+  const el=document.getElementById('folder-list'); if(!el) return;
+  window._fm={};S.folders.forEach(f=>{window._fm[f.id]=f;});
+  if(!S.folders.length){el.innerHTML='';return;}
+  el.innerHTML=S.folders.map(f=>`
+    <div class="fade-in flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 group cursor-pointer border border-transparent hover:border-gray-200" onclick="openFolderById(${f.id})">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-yellow-500 text-lg">📂</span>
+        <span class="text-sm font-medium text-gray-700 truncate">${esc(f.name)}</span>
+      </div>
+      <button onclick="event.stopPropagation();deleteFolder(${f.id})" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-xs px-1">✕</button>
+    </div>`).join('');
+}
+
+function renderFiles(){
+  const el=document.getElementById('file-list'); if(!el) return;
+  if(!S.files.length&&!S.folders.length){
+    el.innerHTML=`<div class="text-center py-16 text-gray-400"><div class="text-5xl mb-3">📭</div><div class="text-sm">Empty — upload files or create a folder</div></div>`;return;
+  }
+  if(!S.files.length){el.innerHTML='';return;}
+  const allSel=S.files.every(f=>S.selectedIds.has(f.id));
+  el.innerHTML=`
+    <div class="flex items-center gap-3 px-4 py-2 border-b border-gray-100 mb-0.5">
+      <input type="checkbox" ${allSel?'checked':''} onchange="selAll()" title="Select all"/>
+      <span class="text-xs text-gray-400 font-medium uppercase tracking-wide">Name</span>
+      <span class="text-xs text-gray-400 font-medium uppercase tracking-wide ml-auto pr-20">Size</span>
+    </div>
+    ${S.files.map(f=>{const sel=S.selectedIds.has(f.id);return`
+    <div class="fade-in flex items-center gap-3 px-4 py-2.5 rounded-lg group border ${sel?'border-blue-200 bg-blue-50':'border-transparent hover:bg-gray-50 hover:border-gray-200'}">
+      <input type="checkbox" ${sel?'checked':''} onchange="toggleSel(${f.id})" onclick="event.stopPropagation()"/>
+      <span class="text-xl">${fileIcon(f.name)}</span>
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-medium text-gray-800 truncate">${esc(f.name)}</div>
+        <div class="text-xs text-gray-400">${fmtDate(f.created_at)}</div>
+      </div>
+      <span class="text-xs text-gray-400 hidden sm:block w-16 text-right">${fmtSize(f.size)}</span>
+      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onclick="downloadFile(${f.id},'${esc(f.name).replace(/'/g,"\\'")}')" class="text-xs text-blue-600 hover:bg-blue-100 px-2 py-1 rounded">⬇</button>
+        <button onclick="deleteFile(${f.id})" class="text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 px-2 py-1 rounded">✕</button>
+      </div>
+    </div>`;}).join('')}`;
+}
+
+function renderUploadQ(){
+  const el=document.getElementById('uq-list'); if(!el) return;
+  const done=S.uploadQueue.filter(i=>i.status==='done').length;
+  const errs=S.uploadQueue.filter(i=>i.status==='error').length;
+  document.getElementById('uq-summary').textContent=S.isUploading?`Uploading ${done+1} of ${S.uploadQueue.length}…`:errs?`${done} uploaded · ${errs} failed`:`${done} uploaded`;
+  el.innerHTML=S.uploadQueue.map(i=>`<div class="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+    <span class="text-lg">${fileIcon(i.file.name)}</span>
+    <div class="flex-1 min-w-0"><div class="text-sm text-gray-700 truncate font-medium">${esc(i.file.name)}</div><div class="text-xs text-gray-400">${fmtSize(i.file.size)}</div>${i.status==='error'?`<div class="text-xs text-red-500">${esc(i.error)}</div>`:''}</div>
+    <div class="flex-shrink-0">${stIcon(i.status)}</div>
+  </div>`).join('');
+}
+
+function renderDownloadQ(){
+  const el=document.getElementById('dq-list'); if(!el) return;
+  const done=S.downloadQueue.filter(i=>i.status==='done').length;
+  const errs=S.downloadQueue.filter(i=>i.status==='error').length;
+  document.getElementById('dq-summary').textContent=S.isDownloading?`Downloading ${done+1} of ${S.downloadQueue.length}…`:errs?`${done} downloaded · ${errs} failed`:`${done} downloaded`;
+  el.innerHTML=S.downloadQueue.map(i=>`<div class="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+    <span class="text-lg">${fileIcon(i.name)}</span>
+    <div class="flex-1 min-w-0"><div class="text-sm text-gray-700 truncate font-medium">${esc(i.name)}</div>${i.status==='error'?`<div class="text-xs text-red-500">${esc(i.error||'')}</div>`:''}</div>
+    <div class="flex-shrink-0">${stIcon(i.status)}</div>
+  </div>`).join('');
+}
+
+// ── Form handlers ─────────────────────────────────────────────────────────────
+async function handleSignup(e){
+  e.preventDefault();
+  const btn=document.getElementById('signup-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+  setErr('signup-err','');
+  try{
+    await signup(
+      v('su-username'),v('su-email'),v('su-fullname'),v('su-phone'),v('su-password')
+    );
+  }catch(err){setErr('signup-err',err.message);}
+  finally{btn.disabled=false;btn.innerHTML='Create account';}
+}
+
+async function handleLogin(e){
+  e.preventDefault();
+  const btn=document.getElementById('login-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+  setErr('login-err','');
+  try{await login(v('l-username'),v('l-password'));}
+  catch(err){setErr('login-err',err.message);}
+  finally{btn.disabled=false;btn.innerHTML='Sign in';}
+}
+
+async function handleForgot(e){
+  e.preventDefault();
+  const btn=document.getElementById('forgot-btn');
+  btn.disabled=true;btn.innerHTML='Sending…';
+  setErr('forgot-err','');
+  try{
+    await forgotPassword(v('fp-email'));
+    document.getElementById('forgot-sent').classList.remove('hidden');
+    document.getElementById('forgot-form').classList.add('hidden');
+  }catch(err){setErr('forgot-err',err.message);}
+  finally{btn.disabled=false;btn.innerHTML='Send reset link';}
+}
+
+async function handleReset(e){
+  e.preventDefault();
+  const params=new URLSearchParams(location.hash.split('?')[1]||'');
+  const token=params.get('token')||'';
+  if(!token){setErr('reset-err','Invalid link — token missing.');return;}
+  const btn=document.getElementById('reset-btn');
+  btn.disabled=true;btn.innerHTML='Resetting…';
+  setErr('reset-err','');
+  try{
+    await resetPassword(token,v('rp-password'));
+    document.getElementById('reset-success').classList.remove('hidden');
+    document.getElementById('reset-form').classList.add('hidden');
+  }catch(err){setErr('reset-err',err.message);}
+  finally{btn.disabled=false;btn.innerHTML='Set new password';}
+}
+
+async function handleChangePw(e){
+  e.preventDefault();
+  const btn=document.getElementById('cpw-btn');
+  btn.disabled=true;btn.innerHTML='Saving…';
+  setErr('cpw-err','');
+  try{
+    await changePassword(v('cpw-current'),v('cpw-new'));
+    toast('Password changed!','success');
+    hideModal('settings-modal');
+  }catch(err){setErr('cpw-err',err.message);}
+  finally{btn.disabled=false;btn.innerHTML='Change password';}
+}
+
+async function handleCreateFolder(e){
+  e.preventDefault();
+  const input=document.getElementById('fn-input');
+  try{await createFolder(input.value.trim());input.value='';hideModal('folder-modal');toast('Folder created','success');}
+  catch(err){toast(err.message,'error');}
+}
+
+let tgPhone='';
+async function handleTgSendCode(e){
+  e.preventDefault();
+  const btn=document.getElementById('tg-send-btn');
+  btn.disabled=true;btn.textContent='Sending…';
+  try{
+    tgPhone=v('tg-phone'); await tgSendCode(tgPhone);
+    document.getElementById('tg-step1').classList.add('hidden');
+    document.getElementById('tg-step2').classList.remove('hidden');
+    toast('OTP sent','success');
+  }catch(err){toast(err.message,'error');}
+  finally{btn.disabled=false;btn.textContent='Send code';}
+}
+
+async function handleTgSignIn(e){
+  e.preventDefault();
+  const btn=document.getElementById('tg-verify-btn');
+  btn.disabled=true;btn.textContent='Verifying…';
+  try{
+    await tgSignIn(tgPhone,v('tg-code'),v('tg-2fa')||null);
+    toast('Telegram connected!','success');
+    showView('app'); await loadAll();
+  }catch(err){
+    if(err.message==='2FA_REQUIRED'){document.getElementById('tg-2fa-row').classList.remove('hidden');toast('Enter your 2FA password','info');}
+    else toast(err.message,'error');
+  }finally{btn.disabled=false;btn.textContent='Verify';}
+}
+
+function handleFileSelect(e){if(e.target.files.length)enqueueFiles(e.target.files);e.target.value='';}
+function handleDrop(e){e.preventDefault();document.getElementById('drop-zone').classList.remove('dragover');if(e.dataTransfer.files.length)enqueueFiles(e.dataTransfer.files);}
+function handleDragOver(e){e.preventDefault();document.getElementById('drop-zone').classList.add('dragover');}
+function handleDragLeave(){document.getElementById('drop-zone').classList.remove('dragover');}
+
+function v(id){return(document.getElementById(id)||{}).value||'';}
+function setErr(id,msg){const el=document.getElementById(id);if(!el)return;el.textContent=msg;msg?el.classList.remove('hidden'):el.classList.add('hidden');}
+</script>
+
+<!-- ── TOAST ──────────────────────────────────────────────────────────────── -->
+<div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50"></div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     SIGNUP
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-signup" class="view min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">☁️</div>
+      <h1 class="text-2xl font-bold text-gray-900">Create account</h1>
+      <p class="text-sm text-gray-500 mt-1">TGDrive — personal cloud via Telegram</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <form onsubmit="handleSignup(event)" class="space-y-3">
+        <div id="signup-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Username</label>
+            <input id="su-username" type="text" required autocomplete="username"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Full name</label>
+            <input id="su-fullname" type="text" required
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Email</label>
+          <input id="su-email" type="email" required autocomplete="email"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Phone number</label>
+          <input id="su-phone" type="tel" required placeholder="+8801712345678"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Password</label>
+          <input id="su-password" type="password" required minlength="6" autocomplete="new-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          <p class="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
+        </div>
+        <button id="signup-btn" type="submit"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg flex items-center justify-center gap-2">
+          Create account
+        </button>
+      </form>
+    </div>
+    <p class="text-center text-sm text-gray-500 mt-4">
+      Already have an account? <button onclick="goTo('login')" class="text-blue-600 hover:underline font-medium">Sign in</button>
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     LOGIN
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-login" class="view min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">☁️</div>
+      <h1 class="text-2xl font-bold text-gray-900">TGDrive</h1>
+      <p class="text-sm text-gray-500 mt-1">Personal cloud storage via Telegram</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div id="login-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          <input id="l-username" type="text" required autocomplete="username"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <input id="l-password" type="password" required autocomplete="current-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <div class="flex justify-end">
+          <button type="button" onclick="goTo('forgot-password')" class="text-xs text-blue-600 hover:underline">Forgot password?</button>
+        </div>
+        <button id="login-btn" type="submit"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg flex items-center justify-center gap-2">
+          Sign in
+        </button>
+      </form>
+    </div>
+    <p class="text-center text-sm text-gray-500 mt-4">
+      No account? <button onclick="goTo('signup')" class="text-blue-600 hover:underline font-medium">Create one</button>
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     FORGOT PASSWORD
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-forgot-password" class="view min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">🔑</div>
+      <h1 class="text-xl font-bold text-gray-900">Forgot password</h1>
+      <p class="text-sm text-gray-500 mt-1">We'll send a reset link to your email</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div id="forgot-sent" class="hidden text-center py-4">
+        <div class="text-4xl mb-3">📧</div>
+        <p class="text-sm font-medium text-gray-700">Check your email!</p>
+        <p class="text-xs text-gray-500 mt-1">We sent a reset link. It expires in 1 hour.</p>
+        <button onclick="goTo('login')" class="mt-4 text-sm text-blue-600 hover:underline">Back to login</button>
+      </div>
+      <form id="forgot-form" onsubmit="handleForgot(event)" class="space-y-4">
+        <div id="forgot-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+          <input id="fp-email" type="email" required autocomplete="email"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        </div>
+        <button id="forgot-btn" type="submit"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg">
+          Send reset link
+        </button>
+      </form>
+    </div>
+    <p class="text-center text-sm text-gray-500 mt-4">
+      <button onclick="goTo('login')" class="text-blue-600 hover:underline">← Back to login</button>
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     RESET PASSWORD (opened via email link)
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-reset-password" class="view min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">🔒</div>
+      <h1 class="text-xl font-bold text-gray-900">Set new password</h1>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div id="reset-success" class="hidden text-center py-4">
+        <div class="text-4xl mb-3">✅</div>
+        <p class="text-sm font-medium text-gray-700">Password reset successfully!</p>
+        <button onclick="goTo('login')" class="mt-4 text-sm text-blue-600 hover:underline">Sign in now</button>
+      </div>
+      <form id="reset-form" onsubmit="handleReset(event)" class="space-y-4">
+        <div id="reset-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">New password</label>
+          <input id="rp-password" type="password" required minlength="6" autocomplete="new-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          <p class="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
+        </div>
+        <button id="reset-btn" type="submit"
+          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg">
+          Set new password
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     TELEGRAM SETUP
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-tg-setup" class="view min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-2">✈️</div>
+      <h1 class="text-xl font-bold text-gray-900">Connect Telegram</h1>
+      <p class="text-sm text-gray-500 mt-1">One-time setup. Your files go to your personal Saved Messages.</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div id="tg-step1">
+        <form onsubmit="handleTgSendCode(event)" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Your Telegram phone number</label>
+            <input id="tg-phone" type="tel" placeholder="+8801712345678"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+            <p class="text-xs text-gray-400 mt-1">Include country code (+880 for Bangladesh)</p>
+          </div>
+          <button id="tg-send-btn" type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg">Send code</button>
+        </form>
+      </div>
+      <div id="tg-step2" class="hidden">
+        <form onsubmit="handleTgSignIn(event)" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">OTP from Telegram</label>
+            <input id="tg-code" type="text" placeholder="12345" maxlength="6" autocomplete="one-time-code"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-widest text-center text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+          <div id="tg-2fa-row" class="hidden">
+            <label class="block text-sm font-medium text-gray-700 mb-1">2FA Password</label>
+            <input id="tg-2fa" type="password"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+          <button id="tg-verify-btn" type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm py-2 rounded-lg">Verify</button>
+          <button type="button"
+            onclick="document.getElementById('tg-step1').classList.remove('hidden');document.getElementById('tg-step2').classList.add('hidden')"
+            class="w-full text-sm text-gray-500 hover:text-gray-700">← Back</button>
+        </form>
+      </div>
+    </div>
+    <div class="text-center mt-4">
+      <button onclick="logout()" class="text-xs text-gray-400 hover:text-gray-600">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="view-app" class="view min-h-screen flex-col">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xl">☁️</span>
+      <span class="font-bold text-gray-900 text-lg">TGDrive</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="user-info" class="hidden sm:block"></span>
+      <button onclick="showModal('settings-modal')" class="text-xs text-gray-400 hover:text-gray-600" title="Settings">⚙️</button>
+      <button onclick="logout()" class="text-xs text-gray-400 hover:text-gray-600">Sign out</button>
+    </div>
+  </header>
+
+  <main class="flex-1 flex flex-col md:flex-row overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-full md:w-56 bg-white border-b md:border-b-0 md:border-r border-gray-200 p-3 flex md:flex-col gap-2 overflow-x-auto md:overflow-visible flex-shrink-0">
+      <button onclick="nav(-1)" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700 whitespace-nowrap">
+        🏠 <span class="hidden md:inline">My Drive</span>
+      </button>
+      <div class="hidden md:block border-t border-gray-100 my-1"></div>
+      <button onclick="showModal('folder-modal')" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 text-sm font-medium text-blue-700 whitespace-nowrap border border-blue-200">
+        ➕ New folder
+      </button>
+      <label class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 text-sm font-medium text-blue-600 cursor-pointer whitespace-nowrap border border-blue-200">
+        ⬆️ Upload files
+        <input type="file" class="hidden" multiple onchange="handleFileSelect(event)"/>
+      </label>
+      <div class="hidden md:block mt-auto pt-4 border-t border-gray-100">
+        <div class="text-xs text-gray-400 px-3">AES-256 encrypted · stored in your Telegram Saved Messages</div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-2 flex-wrap flex-shrink-0">
+        <div id="breadcrumb" class="text-sm text-gray-600 flex items-center gap-1 flex-wrap flex-1"></div>
+      </div>
+      <div id="sel-bar" class="hidden bg-blue-50 border-b border-blue-200 px-4 py-2.5 flex-shrink-0"></div>
+      <div id="drop-zone" class="drop-zone flex-1 overflow-y-auto p-4"
+        ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave()">
+        <div id="folder-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-4"></div>
+        <div id="file-list" class="space-y-0.5"></div>
+        <div class="hidden md:block text-center text-xs text-gray-300 mt-8">Drop files anywhere · select to bulk download</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ════ MODAL: NEW FOLDER ═════════════════════════════════════════════════ -->
+<div id="folder-modal" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 fade-in">
+    <h2 class="font-semibold text-gray-800 mb-4">New folder</h2>
+    <form onsubmit="handleCreateFolder(event)" class="space-y-4">
+      <input id="fn-input" type="text" placeholder="Folder name" autofocus
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+      <div class="flex gap-2 justify-end">
+        <button type="button" onclick="hideModal('folder-modal')" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+        <button type="submit" class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ════ MODAL: SETTINGS ══════════════════════════════════════════════════ -->
+<div id="settings-modal" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 fade-in">
+    <h2 class="font-semibold text-gray-800 mb-4">Settings</h2>
+    <div class="space-y-6">
+      <!-- Change password -->
+      <div>
+        <h3 class="text-sm font-medium text-gray-700 mb-3">Change password</h3>
+        <form onsubmit="handleChangePw(event)" class="space-y-3">
+          <div id="cpw-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+          <input id="cpw-current" type="password" placeholder="Current password" autocomplete="current-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          <input id="cpw-new" type="password" placeholder="New password (min 6 chars)" autocomplete="new-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          <button id="cpw-btn" type="submit"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg">Change password</button>
+        </form>
+      </div>
+      <!-- Telegram -->
+      <div class="border-t border-gray-100 pt-4">
+        <h3 class="text-sm font-medium text-gray-700 mb-2">Telegram</h3>
+        <button onclick="tgSignOut();hideModal('settings-modal');"
+          class="text-sm text-red-500 hover:text-red-700 hover:underline">Disconnect Telegram account</button>
+      </div>
+    </div>
+    <div class="mt-6 flex justify-end">
+      <button onclick="hideModal('settings-modal')" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ MODAL: UPLOAD PROGRESS ═══════════════════════════════════════════ -->
+<div id="upload-modal" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md fade-in flex flex-col" style="max-height:80vh">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+      <div>
+        <h2 class="font-semibold text-gray-800">Uploading files</h2>
+        <p id="uq-summary" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button onclick="clearUploadQ()" class="text-gray-400 hover:text-gray-600 text-sm px-2 py-1 rounded hover:bg-gray-100">✕</button>
+    </div>
+    <div id="uq-list" class="overflow-y-auto px-5 py-1 flex-1"></div>
+  </div>
+</div>
+
+<!-- ════ MODAL: DOWNLOAD PROGRESS ════════════════════════════════════════ -->
+<div id="download-modal" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md fade-in flex flex-col" style="max-height:80vh">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+      <div>
+        <h2 class="font-semibold text-gray-800">Downloading files</h2>
+        <p id="dq-summary" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button onclick="if(!S.isDownloading){hideModal('download-modal');S.downloadQueue=[];}"
+        class="text-gray-400 hover:text-gray-600 text-sm px-2 py-1 rounded hover:bg-gray-100">✕</button>
+    </div>
+    <div id="dq-list" class="overflow-y-auto px-5 py-1 flex-1"></div>
+  </div>
+</div>
+
+<script>
+// Close modals on backdrop click
+['folder-modal','settings-modal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',function(e){if(e.target===this)hideModal(id);});
+});
+</script>
+</body>
+</html>
