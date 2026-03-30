@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TGDrive Admin</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+/* ── Login screen ── */
+#login-screen {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+}
+.login-box {
+  background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+  padding: 40px; width: 100%; max-width: 400px;
+}
+.login-box .logo {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
+}
+.login-box .logo h1 { font-size: 22px; font-weight: 700; }
+.login-box .logo span {
+  font-size: 11px; background: #2563eb; color: #fff;
+  padding: 2px 8px; border-radius: 99px; font-weight: 600;
+}
+.login-box label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px; margin-top: 16px; }
+.login-box input {
+  width: 100%; background: #0f172a; border: 1px solid #334155;
+  border-radius: 8px; color: #f1f5f9; padding: 11px 14px;
+  font-size: 15px; outline: none; transition: border .15s;
+}
+.login-box input:focus { border-color: #3b82f6; }
+
+/* ── Main panel ── */
+#panel-screen { display: none; }
+
+.topbar {
+  background: #1e293b; border-bottom: 1px solid #334155;
+  padding: 14px 24px; display: flex; align-items: center; gap: 12px;
+}
+.topbar h1 { font-size: 18px; font-weight: 700; }
+.topbar .badge { font-size: 11px; background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 99px; }
+.topbar .conn { margin-left: auto; font-size: 13px; color: #4ade80; display: flex; align-items: center; gap: 6px; }
+.topbar .conn::before { content: ''; width: 7px; height: 7px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 6px #4ade8088; display: inline-block; }
+.topbar .logout-btn {
+  margin-left: 16px; background: transparent; border: 1px solid #334155;
+  color: #94a3b8; border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+.topbar .logout-btn:hover { background: #334155; color: #f1f5f9; }
+
+.wrap { max-width: 960px; margin: 28px auto; padding: 0 16px; }
+
+.stats { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
+.stat {
+  background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+  padding: 16px 22px; flex: 1; min-width: 130px;
+}
+.stat-num { font-size: 30px; font-weight: 700; }
+.stat-label { font-size: 12px; color: #64748b; margin-top: 3px; }
+
+.card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 22px; }
+.card-head { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+.card-head h2 { font-size: 15px; font-weight: 700; flex: 1; }
+
+input[type=text], input[type=password], select {
+  background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+  color: #f1f5f9; padding: 9px 13px; font-size: 14px; outline: none; transition: border .15s;
+}
+input[type=text]:focus, input[type=password]:focus, select:focus { border-color: #3b82f6; }
+
+button {
+  background: #2563eb; color: #fff; border: none; border-radius: 8px;
+  padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
+}
+button:hover { background: #1d4ed8; }
+button:disabled { background: #334155; color: #475569; cursor: not-allowed; }
+button.green  { background: #16a34a; } button.green:hover  { background: #15803d; }
+button.red    { background: #dc2626; } button.red:hover    { background: #b91c1c; }
+button.ghost  { background: transparent; border: 1px solid #334155; color: #94a3b8; }
+button.ghost:hover { background: #334155; color: #f1f5f9; }
+button.sm     { padding: 6px 14px; font-size: 12px; }
+
+.alert {
+  padding: 11px 16px; border-radius: 8px; font-size: 14px;
+  margin-bottom: 16px; display: none;
+}
+.alert.show  { display: block; }
+.alert.error { background: #450a0a; border: 1px solid #dc2626; color: #fca5a5; }
+.alert.ok    { background: #052e16; border: 1px solid #16a34a; color: #86efac; }
+.alert.info  { background: #0c1a35; border: 1px solid #3b82f6; color: #93c5fd; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; color: #64748b; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; padding: 0 12px 12px; border-bottom: 1px solid #334155;
+}
+td { padding: 13px 12px; border-bottom: 1px solid #0f172a66; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #ffffff06; }
+
+.badge-paid   { display:inline-block; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; background:#052e16; color:#4ade80; border:1px solid #16a34a; }
+.badge-unpaid { display:inline-block; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; background:#450a0a; color:#f87171; border:1px solid #dc2626; }
+.badge-tgyes  { display:inline-block; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; background:#0c1a35; color:#93c5fd; border:1px solid #3b82f6; }
+.badge-tgno   { display:inline-block; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; background:#1c1917; color:#78716c; border:1px solid #44403c; }
+
+.empty   { text-align:center; padding:52px; color:#475569; }
+.spinner { display:inline-block; width:16px; height:16px; border:2px solid #334155; border-top-color:#3b82f6; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-left:8px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ══════════════ LOGIN ══════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="#2563eb"/><path d="M8 9h12M8 14h8M8 19h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+      <h1>TGDrive</h1>
+      <span>Admin</span>
+    </div>
+
+    <div id="login-alert" class="alert"></div>
+
+    <div id="url-status" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:13px;color:#64748b;min-height:22px"></div>
+
+    <label>Admin Username</label>
+    <input id="admin-user" type="text" placeholder="admin" />
+
+    <label>Admin Password</label>
+    <input id="admin-pass" type="password" placeholder="••••••••"
+           onkeydown="if(event.key==='Enter') doLogin()" />
+
+    <button onclick="doLogin()" id="login-btn" style="width:100%;margin-top:22px;padding:13px">
+      Sign In
+    </button>
+
+    <div id="manual-url-box" style="margin-top:14px;display:none">
+      <label style="font-size:13px;color:#94a3b8;display:block;margin-bottom:6px">Backend URL (paste ngrok URL)</label>
+      <div style="display:flex;gap:8px">
+        <input id="manual-api" type="text" placeholder="https://xxxx.ngrok-free.app"
+               style="flex:1;font-size:13px" />
+        <button onclick="useManualUrl()" style="padding:9px 16px;font-size:13px">Use</button>
+      </div>
+    </div>
+
+    <details style="margin-top:14px">
+      <summary style="font-size:12px;color:#475569;cursor:pointer;user-select:none">
+        &#9881;&#65039; Settings
+      </summary>
+      <div style="margin-top:10px">
+        <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px">GitHub Pages URL</label>
+        <input id="pages-url" type="text" placeholder="https://yourname.github.io/tgdrive"
+               style="font-size:13px;width:100%" oninput="savePages()" />
+        <p style="font-size:11px;color:#475569;margin-top:6px">
+          Best experience: upload admin.html to GitHub Pages so the URL auto-fetches from api.txt.
+        </p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<!-- ══════════════ PANEL ══════════════ -->
+<div id="panel-screen">
+  <div class="topbar">
+    <svg width="22" height="22" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="#2563eb"/><path d="M8 9h12M8 14h8M8 19h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+    <h1>TGDrive</h1>
+    <span class="badge">Admin</span>
+    <div class="conn" id="conn-label">Connected</div>
+    <button class="logout-btn" onclick="doLogout()">Log out</button>
+  </div>
+
+  <div class="wrap">
+    <div id="stats-row" class="stats"></div>
+
+    <div id="main-alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>👥 All Users</h2>
+        <input type="text" id="search" placeholder="Search name / email…"
+               oninput="renderTable()" style="width:220px" />
+        <select id="filter" onchange="renderTable()">
+          <option value="">All statuses</option>
+          <option value="Paid">Active only</option>
+          <option value="Not Paid">Pending only</option>
+        </select>
+        <button class="ghost sm" onclick="loadUsers()">↻ Refresh</button>
+      </div>
+      <div id="table-wrap"><div class="empty">Loading…<span class="spinner"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let API = '', KEY = '', users = [];
+
+// ── Constants — set your GitHub Pages URL once here as the default ────────────
+const DEFAULT_PAGES_URL = 'https://imahmud98.github.io/tgdrive';
+
+// ── On load: restore saved data, auto-fetch URL ───────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  // Restore saved username
+  const savedUser = localStorage.getItem('tga_user');
+  if (savedUser) document.getElementById('admin-user').value = savedUser;
+
+  // Restore / default GitHub Pages URL
+  const savedPages = localStorage.getItem('tga_pages') || DEFAULT_PAGES_URL;
+  document.getElementById('pages-url').value = savedPages;
+
+  // Auto-fetch the backend URL from api.txt
+  await fetchApiUrl(savedPages);
+
+  // Restore active session (same tab)
+  const s = sessionStorage.getItem('tga');
+  if (s) {
+    try {
+      const d = JSON.parse(s);
+      API = d.api; KEY = d.key;
+      showPanel();
+      loadUsers();
+    } catch(e) { sessionStorage.removeItem('tga'); }
+  }
+});
+
+// ── Fetch api.txt — works when served from GitHub Pages (same origin) ──────────
+async function fetchApiUrl(pagesUrl) {
+  const statusEl = document.getElementById('url-status');
+  statusEl.innerHTML = '<span class="spinner" style="width:12px;height:12px;margin:0"></span>&nbsp;Fetching latest backend URL…';
+
+  // If admin.html is ON GitHub Pages, fetch api.txt from same origin (no CORS)
+  const sameOrigin = location.protocol !== 'file:';
+
+  try {
+    const url_to_fetch = sameOrigin
+      ? (location.origin + location.pathname.replace(/\/[^\/]*$/, '') + '/api.txt')
+      : ((pagesUrl || '').trim().replace(/\/$/, '') + '/api.txt');
+
+    const res = await fetch(url_to_fetch, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' }
+    });
+    if (!res.ok) throw new Error('api.txt not found');
+    const url = (await res.text()).trim();
+    if (!url.startsWith('http')) throw new Error('Invalid URL in api.txt');
+    API = url;
+    localStorage.setItem('tga_api', url);
+    statusEl.innerHTML =
+      `<span style="color:#4ade80">●</span> Backend: <span style="color:#93c5fd">${url}</span>`;
+  } catch(e) {
+    // Fall back to last known URL saved in localStorage
+    const saved = localStorage.getItem('tga_api');
+    if (saved) {
+      API = saved;
+      statusEl.innerHTML =
+        `<span style="color:#f59e0b">●</span> Using last known URL: <span style="color:#93c5fd">${saved}</span>`;
+    } else {
+      statusEl.innerHTML =
+        `<span style="color:#f87171">●</span> Could not auto-fetch URL`;
+      document.getElementById('manual-url-box').style.display = '';
+    }
+  }
+}
+
+function useManualUrl() {
+  const url = document.getElementById('manual-api').value.trim().replace(/\/$/, '');
+  if (!url.startsWith('http')) {
+    alert_('login-alert', 'Please enter a valid URL starting with https://', 'error'); return;
+  }
+  API = url;
+  localStorage.setItem('tga_api', url);
+  document.getElementById('url-status').innerHTML =
+    `<span style="color:#4ade80">●</span> Backend: <span style="color:#93c5fd">${url}</span>`;
+  document.getElementById('manual-url-box').style.display = 'none';
+  alert_('login-alert', '✅ URL set. Now sign in.', 'ok');
+}
+
+function savePages() {
+  const val = document.getElementById('pages-url').value.trim();
+  localStorage.setItem('tga_pages', val);
+  fetchApiUrl(val);
+}
+
+function alert_(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.className = `alert ${type} show`;
+  if (type === 'ok') setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const user = document.getElementById('admin-user').value.trim();
+  const pass = document.getElementById('admin-pass').value;
+
+  if (!API) {
+    // Try fetching once more before giving up
+    const pages = document.getElementById('pages-url').value.trim();
+    await fetchApiUrl(pages);
+  }
+  if (!API) {
+    alert_('login-alert', 'Backend URL could not be fetched. Check the GitHub Pages URL below.', 'error'); return;
+  }
+  if (!user || !pass) {
+    alert_('login-alert', 'Please enter username and password.', 'error'); return;
+  }
+
+  localStorage.setItem('tga_user', user);
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  try {
+    const res = await fetch(`${API}/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.detail || 'Login failed');
+    }
+    const data = await res.json();
+    KEY = data.admin_key;
+    sessionStorage.setItem('tga', JSON.stringify({ api: API, key: KEY }));
+    showPanel();
+    await loadUsers();
+  } catch(e) {
+    alert_('login-alert', '❌ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+
+function showPanel() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('panel-screen').style.display = '';
+  document.getElementById('conn-label').textContent = 'Connected · ' + API.replace('https://','');
+}
+
+function doLogout() {
+  sessionStorage.removeItem('tga');
+  KEY = ''; users = [];
+  document.getElementById('panel-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('admin-pass').value = '';
+  // Re-fetch URL so it's ready for next login
+  const pages = document.getElementById('pages-url').value.trim();
+  fetchApiUrl(pages);
+}
+
+// ── Load users ────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  document.getElementById('table-wrap').innerHTML =
+    '<div class="empty">Loading<span class="spinner"></span></div>';
+  // Always re-fetch latest ngrok URL before calling API
+  const pages = localStorage.getItem('tga_pages') || DEFAULT_PAGES_URL;
+  await fetchApiUrl(pages);
+  // Update session with fresh URL
+  sessionStorage.setItem('tga', JSON.stringify({ api: API, key: KEY }));
+  try {
+    const res = await fetch(`${API}/admin/users?admin_key=${encodeURIComponent(KEY)}`, {
+      headers: { 'ngrok-skip-browser-warning': 'true' }
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    users = await res.json();
+    renderStats();
+    renderTable();
+  } catch(e) {
+    alert_('main-alert', '❌ ' + e.message, 'error');
+    document.getElementById('table-wrap').innerHTML = '<div class="empty">Failed to load users.</div>';
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const total  = users.length;
+  const paid   = users.filter(u => u.payment_status === 'Paid').length;
+  const unpaid = total - paid;
+  const tg     = users.filter(u => u.tg_authorized).length;
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat"><div class="stat-num">${total}</div><div class="stat-label">Total Users</div></div>
+    <div class="stat"><div class="stat-num" style="color:#4ade80">${paid}</div><div class="stat-label">Active</div></div>
+    <div class="stat"><div class="stat-num" style="color:#f87171">${unpaid}</div><div class="stat-label">Pending</div></div>
+    <div class="stat"><div class="stat-num" style="color:#93c5fd">${tg}</div><div class="stat-label">Telegram Linked</div></div>`;
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const q  = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter').value;
+  const list = users.filter(u =>
+    (!q  || [u.username, u.email, u.full_name].some(s => (s||'').toLowerCase().includes(q))) &&
+    (!st || u.payment_status === st)
+  );
+
+  if (!list.length) {
+    document.getElementById('table-wrap').innerHTML = '<div class="empty">No users found.</div>';
+    return;
+  }
+
+  const rows = list.map(u => {
+    const paid = u.payment_status === 'Paid';
+    const statusBadge = paid
+      ? '<span class="badge-paid">✓ Active</span>'
+      : '<span class="badge-unpaid">⏳ Pending</span>';
+    const tgBadge = u.tg_authorized
+      ? '<span class="badge-tgyes">✓ Linked</span>'
+      : '<span class="badge-tgno">—</span>';
+    const btn = paid
+      ? `<button class="red sm" onclick="setStatus(${u.id},'Not Paid',this)">Deactivate</button>`
+      : `<button class="green sm" onclick="setStatus(${u.id},'Paid',this)">✓ Activate</button>`;
+    return `<tr>
+      <td><strong>${x(u.username)}</strong><br><span style="color:#64748b;font-size:12px">${x(u.full_name||'')}</span></td>
+      <td style="color:#94a3b8">${x(u.email||'')}</td>
+      <td>${statusBadge}</td>
+      <td>${tgBadge}</td>
+      <td>${btn}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('table-wrap').innerHTML = `
+    <table>
+      <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Telegram</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ── Set status ────────────────────────────────────────────────────────────────
+async function setStatus(uid, newStatus, btn) {
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(
+      `${API}/admin/users/${uid}/payment?status=${encodeURIComponent(newStatus)}&admin_key=${encodeURIComponent(KEY)}`,
+      { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' } }
+    );
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const u = users.find(u => u.id === uid);
+    if (u) u.payment_status = newStatus;
+    renderStats(); renderTable();
+    alert_('main-alert',
+      newStatus === 'Paid' ? `✅ User activated — they can now log in.` : `⛔ User deactivated.`,
+      newStatus === 'Paid' ? 'ok' : 'info'
+    );
+  } catch(e) {
+    alert_('main-alert', '❌ ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = newStatus === 'Paid' ? '✓ Activate' : 'Deactivate';
+  }
+}
+
+function x(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
