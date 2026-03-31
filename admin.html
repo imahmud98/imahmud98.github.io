@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TGDrive Admin</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+#login-screen { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+.login-box { background:#1e293b; border:1px solid #334155; border-radius:16px; padding:40px; width:100%; max-width:440px; }
+.logo { display:flex; align-items:center; gap:10px; margin-bottom:28px; }
+.logo h1 { font-size:22px; font-weight:700; }
+.logo .tag { font-size:11px; background:#2563eb; color:#fff; padding:2px 8px; border-radius:99px; font-weight:600; }
+
+label { display:block; font-size:13px; color:#94a3b8; margin:14px 0 5px; }
+input { width:100%; background:#0f172a; border:1px solid #334155; border-radius:8px; color:#f1f5f9; padding:11px 14px; font-size:14px; outline:none; transition:border .15s; }
+input:focus { border-color:#3b82f6; }
+input::placeholder { color:#475569; }
+
+button { background:#2563eb; color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s; white-space:nowrap; }
+button:hover { background:#1d4ed8; }
+button:disabled { background:#334155; color:#475569; cursor:not-allowed; }
+.btn-green { background:#16a34a; } .btn-green:hover { background:#15803d; }
+.btn-red   { background:#dc2626; } .btn-red:hover   { background:#b91c1c; }
+.btn-ghost { background:transparent; border:1px solid #334155; color:#94a3b8; }
+.btn-ghost:hover { background:#334155; color:#f1f5f9; }
+.btn-sm    { padding:6px 14px; font-size:12px; }
+.btn-full  { width:100%; margin-top:16px; padding:13px; font-size:15px; }
+
+.alert { padding:11px 16px; border-radius:8px; font-size:13px; margin-bottom:12px; display:none; line-height:1.5; }
+.alert.show { display:block; }
+.a-err  { background:#450a0a; border:1px solid #dc2626; color:#fca5a5; }
+.a-ok   { background:#052e16; border:1px solid #16a34a; color:#86efac; }
+.a-info { background:#0c1a35; border:1px solid #3b82f6; color:#93c5fd; }
+.a-warn { background:#431407; border:1px solid #f59e0b; color:#fcd34d; }
+
+.test-row { display:flex; gap:8px; margin-top:6px; }
+.test-row input { flex:1; }
+
+#panel-screen { display:none; }
+.topbar { background:#1e293b; border-bottom:1px solid #334155; padding:14px 24px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.topbar h1 { font-size:18px; font-weight:700; }
+.topbar .tag { font-size:11px; background:#2563eb; color:#fff; padding:2px 8px; border-radius:99px; }
+.topbar .ci { font-size:12px; color:#4ade80; display:flex; align-items:center; gap:5px; margin-left:auto; }
+.topbar .ci::before { content:''; width:7px; height:7px; background:#4ade80; border-radius:50%; box-shadow:0 0 6px #4ade8088; }
+.btn-logout { background:transparent; border:1px solid #334155; color:#94a3b8; border-radius:6px; padding:6px 14px; font-size:13px; font-weight:400; margin-left:12px; cursor:pointer; }
+.btn-logout:hover { background:#334155; color:#f1f5f9; }
+
+.wrap { max-width:980px; margin:28px auto; padding:0 16px; }
+
+.stats { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:24px; }
+.stat { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:16px 22px; flex:1; min-width:120px; }
+.sn { font-size:30px; font-weight:700; }
+.sl { font-size:12px; color:#64748b; margin-top:3px; }
+
+.card { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:22px; }
+.ch { display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap; align-items:center; }
+.ch h2 { font-size:15px; font-weight:700; flex:1; }
+.ch input, .ch select { background:#0f172a; border:1px solid #334155; border-radius:8px; color:#f1f5f9; padding:8px 12px; font-size:13px; outline:none; }
+.ch input { width:190px; }
+.ch input:focus, .ch select:focus { border-color:#3b82f6; }
+
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th { text-align:left; color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:0 12px 12px; border-bottom:1px solid #334155; }
+td { padding:12px; border-bottom:1px solid #0f172a88; vertical-align:middle; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#ffffff04; }
+
+.bp { display:inline-block; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+.bp-paid   { background:#052e16; color:#4ade80; border:1px solid #16a34a; }
+.bp-unpaid { background:#450a0a; color:#f87171; border:1px solid #dc2626; }
+.bp-tgyes  { background:#0c1a35; color:#93c5fd; border:1px solid #3b82f6; }
+.bp-tgno   { background:#1c1917; color:#78716c; border:1px solid #44403c; }
+
+.empty { text-align:center; padding:52px; color:#475569; }
+.sp { display:inline-block; width:14px; height:14px; border:2px solid #334155; border-top-color:#3b82f6; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-left:8px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ════════ LOGIN ════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="#2563eb"/><path d="M8 9h12M8 14h8M8 19h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+      <h1>TGDrive</h1><span class="tag">Admin</span>
+    </div>
+
+    <div id="la" class="alert"></div>
+
+    <label>Backend URL <span style="color:#475569;font-size:11px">— ngrok URL from start.bat</span></label>
+    <div class="test-row">
+      <input id="api-url" type="text" placeholder="https://xxxx.ngrok-free.app"
+             onkeydown="if(event.key==='Enter')testConnection()" />
+      <button onclick="testConnection()" id="test-btn" class="btn-ghost" style="padding:10px 14px;font-size:13px">Test</button>
+    </div>
+
+    <label>Admin Username</label>
+    <input id="au" type="text" placeholder="admin"
+           onkeydown="if(event.key==='Enter')document.getElementById('ap').focus()" />
+
+    <label>Admin Password</label>
+    <input id="ap" type="password" placeholder="••••••••"
+           onkeydown="if(event.key==='Enter')doLogin()" />
+
+    <button class="btn-full" id="login-btn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ════════ PANEL ════════ -->
+<div id="panel-screen">
+  <div class="topbar">
+    <svg width="22" height="22" viewBox="0 0 28 28"><rect width="28" height="28" rx="7" fill="#2563eb"/><path d="M8 9h12M8 14h8M8 19h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+    <h1>TGDrive</h1><span class="tag">Admin</span>
+    <span class="ci" id="ci">Connected</span>
+    <button class="btn-logout" onclick="doLogout()">Log out</button>
+  </div>
+
+  <div class="wrap">
+    <div id="ma" class="alert"></div>
+
+    <div class="stats">
+      <div class="stat"><div class="sn" id="st">—</div><div class="sl">Total Users</div></div>
+      <div class="stat"><div class="sn" style="color:#4ade80" id="sa">—</div><div class="sl">Active</div></div>
+      <div class="stat"><div class="sn" style="color:#f87171" id="sp2">—</div><div class="sl">Pending</div></div>
+      <div class="stat"><div class="sn" style="color:#93c5fd" id="sg">—</div><div class="sl">Telegram Linked</div></div>
+    </div>
+
+    <div class="card">
+      <div class="ch">
+        <h2>👥 Users</h2>
+        <input type="text" id="search" placeholder="Search…" oninput="renderTable()" />
+        <select id="filt" onchange="renderTable()">
+          <option value="">All</option>
+          <option value="Paid">Active</option>
+          <option value="Not Paid">Pending</option>
+        </select>
+        <button class="btn-ghost btn-sm" onclick="loadUsers()">↻ Refresh</button>
+      </div>
+      <div id="tw"><div class="empty">Loading<span class="sp"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let API = '', KEY = '', USERS = [];
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const u = localStorage.getItem('tga_user');
+  if (u) document.getElementById('au').value = u;
+
+  const savedUrl = localStorage.getItem('tga_api');
+  if (savedUrl) document.getElementById('api-url').value = savedUrl;
+
+  const sess = sessionStorage.getItem('tga_s');
+  if (sess) {
+    try {
+      const d = JSON.parse(sess);
+      if (d.api && d.key) {
+        API = d.api; KEY = d.key;
+        document.getElementById('api-url').value = API;
+        showPanel(); loadUsers(); return;
+      }
+    } catch(e) {}
+    sessionStorage.removeItem('tga_s');
+  }
+});
+
+// ── Alert ─────────────────────────────────────────────────────────────────────
+function showAlert(id, msg, cls) {
+  const el = document.getElementById(id);
+  el.innerHTML = msg;
+  el.className = 'alert ' + cls + ' show';
+  if (cls === 'a-ok') setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+// ── apiFetch — wraps fetch with ngrok headers ─────────────────────────────────
+async function apiFetch(url, opts = {}) {
+  const headers = Object.assign({
+    'ngrok-skip-browser-warning': 'true',
+    'Accept': 'application/json',
+  }, opts.headers || {});
+  return fetch(url, { ...opts, headers });
+}
+
+// ── Test connection ───────────────────────────────────────────────────────────
+async function testConnection() {
+  const url = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  if (!url) { showAlert('la', 'Enter a URL first.', 'a-err'); return; }
+
+  const btn = document.getElementById('test-btn');
+  btn.disabled = true; btn.textContent = '…';
+
+  try {
+    const r = await apiFetch(url + '/health');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d.status === 'ok') {
+      showAlert('la', '✅ Backend is reachable! Now enter your credentials and sign in.', 'a-ok');
+    } else {
+      showAlert('la', '⚠️ Got a response but unexpected: ' + JSON.stringify(d), 'a-warn');
+    }
+  } catch(e) {
+    showAlert('la',
+      '❌ Cannot reach backend.<br><br>' +
+      '<strong>Checklist:</strong><br>' +
+      '• Is start.bat running?<br>' +
+      '• Is the ngrok URL correct and up to date?<br>' +
+      '• Try opening <a href="' + url + '/health" target="_blank" style="color:#93c5fd">' + url + '/health</a> in a new tab — if it loads, the URL is right.',
+      'a-err');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Test';
+  }
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const url  = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  const user = document.getElementById('au').value.trim();
+  const pass = document.getElementById('ap').value;
+
+  if (!url)  { showAlert('la', 'Enter the backend URL.', 'a-err'); return; }
+  if (!user) { showAlert('la', 'Enter admin username.', 'a-err'); return; }
+  if (!pass) { showAlert('la', 'Enter admin password.', 'a-err'); return; }
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  try {
+    const r = await apiFetch(url + '/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Wrong username or password');
+    }
+
+    const d = await r.json();
+    API = url; KEY = d.admin_key;
+    localStorage.setItem('tga_user', user);
+    localStorage.setItem('tga_api', url);
+    sessionStorage.setItem('tga_s', JSON.stringify({ api: API, key: KEY }));
+    showPanel();
+    await loadUsers();
+
+  } catch(e) {
+    const msg = e.message || '';
+    if (msg === 'Failed to fetch' || msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('failed to fetch')) {
+      showAlert('la',
+        '❌ Cannot reach backend. Click <strong>Test</strong> next to the URL to diagnose.',
+        'a-err');
+    } else {
+      showAlert('la', '❌ ' + msg, 'a-err');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────────
+function showPanel() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('panel-screen').style.display = 'block';
+  document.getElementById('ci').textContent = 'Connected · ' + API.replace('https://', '');
+}
+
+function doLogout() {
+  sessionStorage.removeItem('tga_s'); KEY = ''; USERS = [];
+  document.getElementById('panel-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('ap').value = '';
+  showAlert('la', '', ''); // clear any stale alerts
+}
+
+// ── Load users ────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  document.getElementById('tw').innerHTML = '<div class="empty">Loading<span class="sp"></span></div>';
+  try {
+    const r = await apiFetch(API + '/admin/users?admin_key=' + encodeURIComponent(KEY));
+    const raw = await r.text(); // read raw response first
+
+    if (!r.ok) {
+      throw new Error('HTTP ' + r.status + ' — ' + raw);
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch(e) {
+      throw new Error('Bad JSON from server: ' + raw.slice(0, 200));
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new Error('Expected a list of users, got: ' + raw.slice(0, 200));
+    }
+
+    USERS = parsed;
+
+    if (USERS.length === 0) {
+      document.getElementById('tw').innerHTML =
+        '<div class="empty">No users in database yet.<br>' +
+        '<span style="font-size:12px;color:#475569">Users appear here after they sign up on the frontend.</span></div>';
+      updateStats();
+      return;
+    }
+
+    updateStats();
+    renderTable();
+
+  } catch(e) {
+    showAlert('ma', '❌ ' + e.message, 'a-err');
+    document.getElementById('tw').innerHTML =
+      '<div class="empty">Failed to load users.<br>' +
+      '<span style="font-size:12px;color:#ef4444">' + e.message + '</span></div>';
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function updateStats() {
+  const tot = USERS.length;
+  const act = USERS.filter(u => u.payment_status === 'Paid').length;
+  const tg  = USERS.filter(u => u.tg_authorized).length;
+  document.getElementById('st').textContent  = tot;
+  document.getElementById('sa').textContent  = act;
+  document.getElementById('sp2').textContent = tot - act;
+  document.getElementById('sg').textContent  = tg;
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const q  = (document.getElementById('search').value || '').toLowerCase();
+  const st = document.getElementById('filt').value;
+  const list = USERS.filter(u => {
+    const mq = !q  || [u.username, u.email, u.full_name].some(v => (v||'').toLowerCase().includes(q));
+    const ms = !st || u.payment_status === st;
+    return mq && ms;
+  });
+
+  if (!list.length) { document.getElementById('tw').innerHTML = '<div class="empty">No users found.</div>'; return; }
+
+  const rows = list.map(u => {
+    const paid = u.payment_status === 'Paid';
+    return `<tr>
+      <td><strong>${esc(u.username)}</strong><div style="color:#64748b;font-size:12px;margin-top:2px">${esc(u.full_name)}</div></td>
+      <td style="color:#94a3b8">${esc(u.email)}</td>
+      <td><span class="bp ${paid?'bp-paid':'bp-unpaid'}">${paid?'✓ Active':'⏳ Pending'}</span></td>
+      <td><span class="bp ${u.tg_authorized?'bp-tgyes':'bp-tgno'}">${u.tg_authorized?'✓ Linked':'—'}</span></td>
+      <td>${paid
+        ? `<button class="btn-red btn-sm" onclick="setStatus(${u.id},'Not Paid',this)">Deactivate</button>`
+        : `<button class="btn-green btn-sm" onclick="setStatus(${u.id},'Paid',this)">✓ Activate</button>`
+      }</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tw').innerHTML = `
+    <table>
+      <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Telegram</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ── Activate / Deactivate ─────────────────────────────────────────────────────
+async function setStatus(uid, newStatus, btn) {
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await apiFetch(
+      API + '/admin/users/' + uid + '/payment?status=' + encodeURIComponent(newStatus) + '&admin_key=' + encodeURIComponent(KEY),
+      { method: 'POST' }
+    );
+    if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail||r.statusText); }
+    const u = USERS.find(u => u.id === uid);
+    if (u) u.payment_status = newStatus;
+    updateStats(); renderTable();
+    showAlert('ma',
+      newStatus === 'Paid' ? '✅ User activated — they can now log in.' : '⛔ User deactivated.',
+      newStatus === 'Paid' ? 'a-ok' : 'a-info');
+  } catch(e) {
+    showAlert('ma', '❌ ' + e.message, 'a-err');
+    btn.disabled = false; btn.textContent = prev;
+  }
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
