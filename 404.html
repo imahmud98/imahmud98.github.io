@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>Redirecting…</title>
+<script>
+// GitHub Pages 404 redirect — catches /share/{id}#key and forwards to backend.
+// api.txt contains the live backend URL (updated by start.bat every launch).
+(async function() {
+  // 1. Load backend URL from api.txt
+  let backend = '';
+  try {
+    const r = await fetch('/api.txt', { cache: 'no-store' });
+    if (r.ok) {
+      const t = (await r.text()).trim();
+      if (t.startsWith('http')) backend = t.replace(/\/$/, '');
+    }
+  } catch(e) {}
+
+  if (!backend) {
+    document.getElementById('msg').textContent =
+      'Backend is offline. Start the backend first, then try the link again.';
+    return;
+  }
+
+  // 2. Build the target URL: backend + same path + same fragment
+  //    e.g. /share/abc123 → https://ngrok-url/share/abc123#key
+  const path     = window.location.pathname;   // /share/abc123
+  const search   = window.location.search;     // usually empty
+  const fragment = window.location.hash;       // #key  (may be empty if WhatsApp stripped it)
+  const target   = backend + path + search + fragment;
+
+  // 3. Redirect immediately, preserving fragment
+  window.location.replace(target);
+})();
+</script>
+</head>
+<body style="font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f9fafb;margin:0">
+  <div style="text-align:center;max-width:360px;padding:2rem">
+    <div style="font-size:3rem;margin-bottom:1rem">☁️</div>
+    <h2 style="color:#111827;font-size:1.25rem;font-weight:700;margin:0 0 0.5rem">MyPocketDrive</h2>
+    <p id="msg" style="color:#6b7280;font-size:0.875rem">Connecting to backend…</p>
+  </div>
+</body>
+</html>
