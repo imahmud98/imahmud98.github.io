@@ -20,16 +20,19 @@
       --plm:  #C8ECEC;
       --ac:   #5FD896;
       --acd:  #3DBEA3;
-      --bg:   #F5F7FA;
+      /* Design system: soft warm gray bg, off-white surfaces, dark-gray text */
+      --bg:   #F5F5F5;
       --sur:  #FFFFFF;
-      --bdr:  #E8ECF2;
-      --txt:  #111827;
+      --bdr:  #E3E6EA;
+      --txt:  #1F2937;
       --sub:  #6B7280;
       --mute: #9CA3AF;
+      --card: #FFFFFF;
+      --card-hover: #FAFAFA;
     }
     *{box-sizing:border-box;margin:0;padding:0;}
     html,body{height:100%;overflow:hidden;}
-    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--txt);-webkit-tap-highlight-color:transparent;}
+    body{font-family:'Inter',system-ui,sans-serif;background:#F5F5F5;color:#1F2937;-webkit-tap-highlight-color:transparent;}
 
     /* ── Utility ─────────────────────────────── */
     .view{display:none;} .view.active{display:flex;}
@@ -73,14 +76,15 @@
        HEADER
     ══════════════════════════════════════════ */
     #app-header{
-      height:56px;flex-shrink:0;
-      background:var(--sur);border-bottom:1px solid var(--bdr);
+      height:64px;flex-shrink:0;
+      background:#FFFFFF;border-bottom:1px solid #E3E6EA;
       display:flex;align-items:center;justify-content:space-between;
-      padding:0 20px;z-index:30;
+      padding:0 16px;gap:12px;z-index:100;
+      position:sticky;top:0;
     }
     .hd-left{display:flex;align-items:center;gap:12px;}
     .hd-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
-    .hd-wordmark{font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:var(--txt);letter-spacing:-.3px;}
+    .hd-wordmark{font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:17px;color:#1F2937;letter-spacing:-.3px;}
     .hd-right{display:flex;align-items:center;gap:6px;}
     .hd-icon-btn{width:34px;height:34px;border:none;background:transparent;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--sub);transition:background .12s;font-size:15px;}
     .hd-icon-btn:hover{background:#F3F4F6;}
@@ -101,7 +105,7 @@
     ══════════════════════════════════════════ */
     #app-sidebar{
       width:240px;flex-shrink:0;
-      background:var(--sur);border-right:1px solid var(--bdr);
+      background:#FFFFFF;border-right:1px solid #E3E6EA;
       display:flex;flex-direction:column;
       padding:12px 10px 14px;overflow-y:auto;
     }
@@ -214,13 +218,13 @@
     /* ══════════════════════════════════════════
        CONTENT AREA
     ══════════════════════════════════════════ */
-    #app-content{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);}
+    #app-content{flex:1;display:flex;flex-direction:column;overflow:hidden;background:#F5F5F5;}
 
     /* Drive toolbar */
     .drive-tb{
       display:flex;align-items:center;gap:8px;
-      padding:10px 20px;background:var(--sur);
-      border-bottom:1px solid var(--bdr);flex-shrink:0;
+      padding:10px 20px;background:#FFFFFF;
+      border-bottom:1px solid #E3E6EA;flex-shrink:0;
     }
     #breadcrumb{flex:1;display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:13px;color:var(--sub);}
     .vt-wrap{display:flex;background:#F3F4F6;border-radius:8px;padding:3px;gap:2px;}
@@ -228,11 +232,11 @@
     .vt-btn.active-nav{background:#fff;color:var(--p);box-shadow:0 1px 3px rgba(0,0,0,.08);}
 
     /* Selection bar */
-    #sel-bar{display:none;background:#EFF6FF;border-bottom:1px solid #BFDBFE;padding:8px 20px;flex-shrink:0;font-size:13px;color:#1D4ED8;}
+    #sel-bar{display:none;background:#EFF6FF;border-bottom:1px solid #BFDBFE;padding:8px 20px;flex-shrink:0;font-size:13px;color:#1D4ED8;font-weight:500;}
     #sel-bar:not(.hidden){display:flex;}
 
     /* Drop zone */
-    #drop-zone{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px;}
+    #drop-zone{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px;background:#F5F5F5;}
 
     /* Section heading in inner content */
     .sec-title{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;font-weight:800;color:var(--txt);margin-bottom:2px;}
@@ -240,15 +244,15 @@
 
     /* ── Folder chips ──────────────────────────── */
     #folder-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:20px;}
-    .folder-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:var(--sur);border:1.5px solid var(--bdr);cursor:pointer;transition:all .15s;font-size:13px;font-weight:500;color:#374151;}
+    .folder-chip{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:#FFFFFF;border:1px solid #E3E6EA;cursor:pointer;transition:all .15s;font-size:13px;font-weight:500;color:#1F2937;box-shadow:0 1px 3px rgba(0,0,0,.05);}
     .folder-chip:hover{border-color:var(--p);background:var(--pl);color:var(--p);}
     .folder-chip .fc-icon{font-size:18px;}
     .folder-chip .fc-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
     /* ── File list rows ────────────────────────── */
     .file-list-header{display:grid;grid-template-columns:1fr 120px 90px 56px;align-items:center;padding:6px 16px;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--mute);border-bottom:1px solid var(--bdr);margin-bottom:4px;}
-    .file-row{display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:10px;background:var(--sur);border:1.5px solid transparent;margin-bottom:3px;cursor:pointer;transition:border-color .12s,box-shadow .12s;}
-    .file-row:hover{border-color:var(--bdr);box-shadow:0 1px 4px rgba(0,0,0,.06);}
+    .file-row{display:flex;align-items:center;gap:12px;padding:8px 14px;border-radius:10px;background:#FFFFFF;border:1px solid #E3E6EA;margin-bottom:4px;cursor:pointer;transition:border-color .12s,box-shadow .12s,background .1s;}
+    .file-row:hover{border-color:#C8D0DA;background:#FAFAFA;box-shadow:0 1px 4px rgba(0,0,0,.06);}
     .file-row.selected{border-color:var(--p);background:var(--pl);}
     .fr-name{flex:1;font-size:13.5px;font-weight:500;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
     .fr-date{width:120px;font-size:12px;color:var(--mute);flex-shrink:0;text-align:right;}
@@ -261,7 +265,7 @@
     /* ── Grid cards ────────────────────────────── */
     #file-list.grid-mode{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
     #file-list.grid-mode .file-row{flex-direction:column;align-items:stretch;padding:0;gap:0;border-radius:12px;overflow:hidden;position:relative;}
-    #file-list.grid-mode .fr-thumb-wrap{width:100%;aspect-ratio:1;background:#F8FAFC;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+    #file-list.grid-mode .fr-thumb-wrap{width:100%;aspect-ratio:1;background:#F0F2F5;display:flex;align-items:center;justify-content:center;overflow:hidden;}
     #file-list.grid-mode .thumb-img{width:100%;height:100%;object-fit:cover;border-radius:0;}
     #file-list.grid-mode .thumb-placeholder{width:100%;height:100%;border-radius:0;font-size:36px;background:#F1F5F9;}
     #file-list.grid-mode .fr-info{padding:9px 11px;}
@@ -486,9 +490,9 @@
     height:64px !important;
     padding:0 16px !important;
     gap:10px !important;
-    background:#fff !important;
-    border-bottom:1px solid #E0E0E0 !important;
-    position:sticky; top:0; z-index:100;
+    background:#FFFFFF !important;
+    border-bottom:1px solid #E3E6EA !important;
+    position:sticky !important; top:0 !important; z-index:100 !important;
   }
   .hd-left{ gap:8px; align-items:center; }
   /* Logo — same visual weight as sidebar icons */
@@ -2378,7 +2382,7 @@ function renderFiles(){
         const deleting=S.deletingIds.has(f.id);
         const hasThumb=f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path;
         return`
-        <div class="fade-in relative flex flex-col rounded-xl border-2 ${sel?'border-teal-400 bg-teal-50':'border-gray-200 bg-white hover:border-teal-300 hover:shadow-sm'} cursor-pointer transition-all group ${deleting?'opacity-50':''}"
+        <div class="fade-in relative flex flex-col rounded-xl border-2 ${sel?'border-teal-400 bg-teal-50':'border-gray-200 bg-white hover:border-teal-300 hover:shadow'} cursor-pointer transition-all group ${deleting?'opacity-50':''}"
              onclick="toggleSel(${f.id})">
           <div class="aspect-square flex items-center justify-center rounded-t-xl overflow-hidden bg-gray-50">
             ${hasThumb
@@ -2416,7 +2420,7 @@ function renderFiles(){
         const hasThumb=f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path;
         const dateStr=fmtDate(f.captured_at||f.created_at);
         return`
-      <div class="fade-in flex items-center gap-3 px-4 py-2.5 rounded-lg group border ${sel?'border-teal-200 bg-teal-50':'border-transparent hover:bg-gray-50 hover:border-gray-200'} ${deleting?'opacity-60':''}">
+      <div class="fade-in flex items-center gap-3 px-4 py-2.5 rounded-lg group border ${sel?'border-teal-200 bg-teal-50':'border-transparent hover:bg-white hover:border-gray-200'} ${deleting?'opacity-60':''}">
         <input type="checkbox" ${sel?'checked':''} onchange="toggleSel(${f.id})" onclick="event.stopPropagation()" ${deleting?'disabled':''}/>
         ${hasThumb
           ?`<div class="thumb-placeholder" style="overflow:hidden;border-radius:6px;flex-shrink:0">
@@ -3572,7 +3576,7 @@ async function revokeShare(shareId) {
       </div>
 
       <!-- ══ DASHBOARD SECTION ══════════════════════════════════════ -->
-      <div id="section-dashboard" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;">
+      <div id="section-dashboard" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;background:#F5F5F5;">
         <div class="max-w-2xl mx-auto">
           <div class="sec-title">Dashboard</div>
           <div class="sec-sub">Your storage overview and plan details</div>
@@ -3618,7 +3622,7 @@ async function revokeShare(shareId) {
       </div>
 
       <!-- ══ REFERRAL SECTION ═══════════════════════════════════════ -->
-      <div id="section-referral" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;">
+      <div id="section-referral" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;background:#F5F5F5;">
         <div class="max-w-lg mx-auto">
           <div class="sec-title">Referral Program</div>
           <div class="sec-sub">Earn +5 GB per friend who signs up with your link. Up to 6 referrals = 30 GB bonus.</div>
@@ -3667,7 +3671,7 @@ async function revokeShare(shareId) {
       </div>
 
       <!-- ══ LICENSES SECTION ═══════════════════════════════════════ -->
-      <div id="section-licenses" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;">
+      <div id="section-licenses" class="app-section hidden flex-1 overflow-y-auto" style="padding:28px 24px;background:#F5F5F5;">
         <div class="max-w-2xl mx-auto space-y-5">
           <div class="flex items-center justify-between">
             <div>
