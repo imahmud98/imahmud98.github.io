@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>My Pocket Drive — Mobile</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #f5f5f0;
+    --surface: #ffffff;
+    --surface2: #f0efe9;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.14);
+    --text-primary: #111110;
+    --text-secondary: #6b6a65;
+    --text-muted: #9e9d97;
+    --accent: #1a5cff;
+    --accent-light: #e8effe;
+    --danger: #d93025;
+    --warn: #e37400;
+    --success: #1e7e34;
+    --folder-icon: #5a5a50;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.07);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
+    --bar-h: 60px;
+    --fab-size: 56px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  #top-bar {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 480px;
+    height: var(--bar-h);
+    background: var(--surface);
+    border-bottom: 0.5px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 12px; gap: 4px;
+    z-index: 100;
+  }
+
+  #top-bar.search-mode { padding: 0 8px; gap: 0; }
+
+  .bar-btn {
+    width: 40px; height: 40px;
+    border: none; background: none;
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary);
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .bar-btn:active { background: var(--surface2); }
+  .bar-btn svg { width: 22px; height: 22px; }
+
+  #bar-title {
+    flex: 1; font-size: 18px; font-weight: 600;
+    color: var(--text-primary); overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+    padding: 0 4px;
+  }
+
+  #search-input {
+    flex: 1; border: none; background: none; outline: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 16px; color: var(--text-primary);
+    padding: 0 8px; height: 40px;
+  }
+  #search-input::placeholder { color: var(--text-muted); }
+
+  /* ── DRAWER OVERLAY ── */
+  #drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    z-index: 200; opacity: 0; pointer-events: none;
+    transition: opacity 0.22s;
+  }
+  #drawer-overlay.open { opacity: 1; pointer-events: all; }
+
+  /* ── DRAWER ── */
+  #drawer {
+    position: fixed; top: 0; left: 50%;
+    transform: translateX(calc(-50% - 16px)) translateX(-100%);
+    width: 280px; height: 100vh;
+    background: var(--surface);
+    z-index: 201;
+    display: flex; flex-direction: column;
+    transition: transform 0.26s cubic-bezier(0.4,0,0.2,1);
+    overflow: hidden;
+  }
+
+  /* desktop centering: drawer slides from left edge of device frame */
+  @media (min-width: 480px) {
+    #drawer { left: calc(50% - 240px); transform: translateX(-100%); }
+    #drawer.open { transform: translateX(0); }
+    #drawer-overlay.open {}
+  }
+  @media (max-width: 479px) {
+    #drawer { left: 0; transform: translateX(-100%); }
+    #drawer.open { transform: translateX(0); }
+  }
+  #drawer.open { transform: translateX(0) !important; }
+
+  .drawer-header {
+    padding: 24px 20px 16px;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .drawer-avatar {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--accent-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 600; color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .drawer-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .drawer-email { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+  .drawer-storage {
+    padding: 12px 20px;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .storage-label {
+    font-size: 12px; color: var(--text-muted);
+    margin-bottom: 6px; font-family: 'DM Mono', monospace;
+  }
+  .storage-bar-bg {
+    height: 4px; background: var(--surface2);
+    border-radius: 2px; overflow: hidden;
+  }
+  .storage-bar-fill {
+    height: 100%; background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s;
+  }
+  .storage-bar-fill.warn { background: var(--warn); }
+  .storage-bar-fill.danger { background: var(--danger); }
+  .storage-text {
+    font-size: 12px; color: var(--text-secondary);
+    margin-top: 5px;
+  }
+
+  .drawer-nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 20px;
+    cursor: pointer; border: none; background: none;
+    width: 100%; text-align: left;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; color: var(--text-primary);
+    transition: background 0.12s;
+    border-radius: 0;
+  }
+  .nav-item:active, .nav-item.active { background: var(--accent-light); color: var(--accent); }
+  .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; opacity: 0.7; }
+  .nav-item.active svg { opacity: 1; color: var(--accent); }
+
+  .drawer-footer {
+    padding: 12px 20px 24px;
+    border-top: 0.5px solid var(--border);
+  }
+  .logout-btn {
+    width: 100%; padding: 10px 16px;
+    background: none; border: 0.5px solid var(--border-strong);
+    border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif;
+    font-size: 14px; color: var(--danger); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background 0.15s;
+  }
+  .logout-btn:active { background: #fff0ee; }
+
+  /* ── MAIN CONTENT ── */
+  #main {
+    padding-top: calc(var(--bar-h) + 8px);
+    padding-bottom: calc(var(--fab-size) + 32px);
+    min-height: 100vh;
+  }
+
+  /* ── BREADCRUMB ── */
+  #breadcrumb {
+    display: none; align-items: center; gap: 4px;
+    padding: 8px 16px 4px;
+    font-size: 13px; color: var(--text-secondary);
+    overflow-x: auto; white-space: nowrap;
+  }
+  #breadcrumb.visible { display: flex; }
+  .bc-sep { opacity: 0.4; }
+  .bc-item { cursor: pointer; }
+  .bc-item:hover { color: var(--accent); }
+
+  /* ── SECTION HEADER ── */
+  .section-header {
+    padding: 14px 16px 8px;
+    font-size: 12px; font-weight: 600;
+    color: var(--text-muted); letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* ── FOLDER GRID ── */
+  #folder-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    margin: 0 0 2px;
+  }
+  .folder-cell {
+    background: var(--surface);
+    padding: 14px 14px;
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; position: relative;
+    min-width: 0;
+    transition: background 0.12s;
+  }
+  .folder-cell:active { background: var(--accent-light); }
+  .folder-icon {
+    width: 36px; height: 36px; flex-shrink: 0;
+    color: var(--folder-icon);
+  }
+  .folder-name {
+    flex: 1; font-size: 13px; font-weight: 500;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    color: var(--text-primary);
+  }
+  .folder-info-btn {
+    width: 28px; height: 28px; flex-shrink: 0;
+    border: none; background: none;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted);
+    transition: background 0.12s;
+  }
+  .folder-info-btn:active { background: var(--surface2); }
+  .folder-info-btn svg { width: 18px; height: 18px; }
+
+  /* ── FILE LIST ── */
+  #file-list {
+    background: var(--surface);
+    border-top: 0.5px solid var(--border);
+  }
+
+  /* list view */
+  .file-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 0.5px solid var(--border);
+    cursor: pointer; position: relative;
+    transition: background 0.12s;
+  }
+  .file-row:active { background: var(--surface2); }
+  .file-row:last-child { border-bottom: none; }
+
+  .file-thumb {
+    width: 44px; height: 44px; flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden; background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .file-thumb img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .file-thumb .file-icon-placeholder {
+    width: 28px; height: 28px;
+  }
+
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
+    font-size: 13px; font-weight: 500;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    color: var(--text-primary);
+  }
+  .file-meta {
+    font-size: 12px; color: var(--text-muted);
+    margin-top: 2px;
+    font-family: 'DM Mono', monospace;
+  }
+  .file-options-btn {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border: none; background: none;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted);
+  }
+  .file-options-btn:active { background: var(--surface2); }
+  .file-options-btn svg { width: 18px; height: 18px; }
+
+  /* grid view */
+  #file-list.grid-view {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border);
+  }
+  #file-list.grid-view .file-row {
+    flex-direction: column; align-items: flex-start;
+    padding: 0; border-bottom: none; background: var(--surface);
+    gap: 0;
+  }
+  #file-list.grid-view .file-thumb {
+    width: 100%; height: 120px; border-radius: 0;
+  }
+  #file-list.grid-view .file-info {
+    padding: 8px 10px 4px; width: 100%;
+  }
+  #file-list.grid-view .file-options-btn {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(2px);
+    border: 0.5px solid var(--border);
+  }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    text-align: center; padding: 48px 24px;
+    color: var(--text-muted);
+  }
+  .empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-state p { font-size: 14px; }
+
+  /* ── FAB ── */
+  #fab {
+    position: fixed;
+    bottom: 24px;
+    left: 50%; transform: translateX(-50%);
+    width: var(--fab-size); height: var(--fab-size);
+    background: var(--accent);
+    border-radius: 50%;
+    border: none; cursor: pointer;
+    box-shadow: var(--shadow-md);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 90;
+    transition: transform 0.18s, background 0.15s;
+  }
+  #fab:active { transform: translateX(-50%) scale(0.94); background: #1248d6; }
+  #fab svg { width: 24px; height: 24px; color: white; }
+
+  /* ── FAB MENU ── */
+  #fab-menu {
+    position: fixed;
+    bottom: calc(24px + var(--fab-size) + 12px);
+    left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: flex-end;
+    z-index: 91;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.18s;
+  }
+  #fab-menu.open { opacity: 1; pointer-events: all; }
+  .fab-action {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .fab-action-label {
+    background: var(--surface);
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-sm);
+    border: 0.5px solid var(--border);
+    white-space: nowrap;
+  }
+  .fab-action-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: none; background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary);
+    border: 0.5px solid var(--border);
+  }
+  .fab-action-btn svg { width: 20px; height: 20px; }
+
+  /* ── BOTTOM SHEET ── */
+  #sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+    z-index: 300; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #sheet-overlay.open { opacity: 1; pointer-events: all; }
+
+  #bottom-sheet {
+    position: fixed; bottom: 0; left: 50%;
+    transform: translateX(-50%) translateY(100%);
+    width: 100%; max-width: 480px;
+    background: var(--surface);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    z-index: 301;
+    padding: 0 0 32px;
+    transition: transform 0.26s cubic-bezier(0.4,0,0.2,1);
+  }
+  #bottom-sheet.open { transform: translateX(-50%) translateY(0); }
+
+  .sheet-handle {
+    width: 36px; height: 4px; background: var(--border-strong);
+    border-radius: 2px; margin: 10px auto 4px;
+  }
+  .sheet-title {
+    padding: 12px 20px 8px;
+    font-size: 12px; font-weight: 600;
+    color: var(--text-muted); letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .sheet-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px;
+    cursor: pointer; border: none; background: none;
+    width: 100%; text-align: left;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; color: var(--text-primary);
+    transition: background 0.12s;
+  }
+  .sheet-item:active { background: var(--surface2); }
+  .sheet-item svg { width: 20px; height: 20px; color: var(--text-secondary); flex-shrink: 0; }
+  .sheet-item.danger { color: var(--danger); }
+  .sheet-item.danger svg { color: var(--danger); }
+
+  /* ── SEARCH RESULTS ── */
+  #search-results {
+    display: none;
+    background: var(--surface);
+  }
+  #search-results.visible { display: block; }
+  .search-result-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 0.5px solid var(--border);
+    cursor: pointer; transition: background 0.12s;
+  }
+  .search-result-row:active { background: var(--surface2); }
+  .search-result-icon {
+    width: 36px; height: 36px; border-radius: var(--radius-sm);
+    background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .search-result-icon svg { width: 20px; height: 20px; }
+  .search-result-name { font-size: 14px; font-weight: 500; }
+  .search-result-type { font-size: 12px; color: var(--text-muted); }
+
+  /* ── FOLDER CONTEXT SHEET ── */
+  #folder-sheet-name {
+    padding: 16px 20px 8px;
+    font-size: 15px; font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 88px; left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: #2c2c2a; color: #fff;
+    padding: 10px 18px; border-radius: var(--radius-md);
+    font-size: 13px; z-index: 400;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── UPLOAD PROGRESS ── */
+  #upload-progress {
+    display: none;
+    position: fixed; bottom: 88px; left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 32px); max-width: 448px;
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-md);
+    z-index: 400;
+  }
+  #upload-progress.visible { display: block; }
+  .upload-prog-label {
+    display: flex; justify-content: space-between;
+    font-size: 13px; margin-bottom: 8px;
+    color: var(--text-secondary);
+  }
+  .upload-prog-bar {
+    height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden;
+  }
+  .upload-prog-fill {
+    height: 100%; background: var(--accent); width: 0%;
+    border-radius: 2px; transition: width 0.3s;
+  }
+
+  /* ── LOADING SKELETON ── */
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: var(--radius-sm);
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── SORT MENU ── */
+  #sort-menu {
+    position: absolute; top: calc(var(--bar-h) + 4px); right: 8px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    border: 0.5px solid var(--border);
+    box-shadow: var(--shadow-md);
+    z-index: 150;
+    overflow: hidden;
+    display: none; min-width: 160px;
+  }
+  #sort-menu.open { display: block; }
+  .sort-item {
+    padding: 12px 16px; font-size: 14px;
+    cursor: pointer; border: none; background: none;
+    width: 100%; text-align: left;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text-primary);
+    display: flex; align-items: center; gap: 10px;
+    transition: background 0.12s;
+  }
+  .sort-item:active { background: var(--surface2); }
+  .sort-item.active { color: var(--accent); }
+  .sort-item svg { width: 16px; height: 16px; }
+
+  /* ── NEW FOLDER MODAL ── */
+  #folder-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    z-index: 500; display: none; align-items: flex-end;
+  }
+  #folder-modal-overlay.open { display: flex; }
+  #folder-modal {
+    width: 100%; background: var(--surface);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 20px 20px 40px;
+  }
+  .modal-title {
+    font-size: 16px; font-weight: 600; margin-bottom: 16px;
+  }
+  .modal-input {
+    width: 100%; padding: 11px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px; color: var(--text-primary);
+    background: var(--bg); outline: none;
+    transition: border-color 0.15s;
+  }
+  .modal-input:focus { border-color: var(--accent); }
+  .modal-actions {
+    display: flex; gap: 10px; margin-top: 14px;
+  }
+  .modal-btn {
+    flex: 1; padding: 12px;
+    border-radius: var(--radius-sm);
+    border: none; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .modal-btn.cancel {
+    background: var(--surface2);
+    color: var(--text-secondary);
+  }
+  .modal-btn.confirm {
+    background: var(--accent);
+    color: white;
+  }
+  .modal-btn:active { opacity: 0.8; }
+
+  /* ── LOGIN SCREEN ── */
+  #login-screen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 600;
+    padding: 32px 24px;
+  }
+  .login-logo {
+    width: 64px; height: 64px;
+    background: var(--accent);
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 24px;
+  }
+  .login-logo svg { width: 36px; height: 36px; color: white; }
+  .login-title {
+    font-size: 26px; font-weight: 700;
+    color: var(--text-primary); margin-bottom: 6px;
+    letter-spacing: -0.02em;
+  }
+  .login-sub {
+    font-size: 14px; color: var(--text-secondary);
+    margin-bottom: 36px; text-align: center;
+  }
+  .login-form { width: 100%; max-width: 360px; }
+  .login-label {
+    font-size: 12px; font-weight: 600;
+    color: var(--text-muted); letter-spacing: 0.04em;
+    text-transform: uppercase; display: block; margin-bottom: 6px;
+  }
+  .login-input {
+    width: 100%; padding: 12px 14px; margin-bottom: 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px; color: var(--text-primary);
+    background: var(--surface); outline: none;
+  }
+  .login-input:focus { border-color: var(--accent); }
+  .login-btn {
+    width: 100%; padding: 14px;
+    background: var(--accent); color: white;
+    border: none; border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px; font-weight: 600;
+    cursor: pointer; margin-top: 4px;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .login-btn:active { opacity: 0.85; }
+  .login-error {
+    font-size: 13px; color: var(--danger);
+    margin-top: 10px; text-align: center; min-height: 18px;
+  }
+  .login-spinner {
+    display: none; width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* file icon colors */
+  .icon-pdf { color: #cc2200; }
+  .icon-img { color: #1a5cff; }
+  .icon-doc { color: #1655a0; }
+  .icon-vid { color: #8b2ac8; }
+  .icon-aud { color: #0a7a45; }
+  .icon-zip { color: #b85c00; }
+  .icon-txt { color: #555; }
+  .icon-gen { color: #888; }
+
+  /* quota banner */
+  #quota-banner {
+    display: none;
+    margin: 8px 16px 0;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    border: 0.5px solid;
+  }
+  #quota-banner.warn {
+    background: #fff8e0; color: #7a4a00; border-color: #f5d85a; display: block;
+  }
+  #quota-banner.danger {
+    background: #fff0ee; color: #8b1a0f; border-color: #f09595; display: block;
+  }
+  #quota-banner.full {
+    background: #fce8e6; color: #7b1611; border-color: #e24b4a; display: block;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN SCREEN ── -->
+<div id="login-screen">
+  <div class="login-logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M22 16.92V19a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3 5.18 2 2 0 0 1 5 3h2.09a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 10.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17.92z"/>
+    </svg>
+  </div>
+  <div class="login-title">My Pocket Drive</div>
+  <div class="login-sub">Your private personal storage</div>
+  <div class="login-form">
+    <label class="login-label">Username</label>
+    <input class="login-input" id="login-user" type="text" placeholder="Enter username" autocomplete="username"/>
+    <label class="login-label">Password</label>
+    <input class="login-input" id="login-pass" type="password" placeholder="Enter password" autocomplete="current-password"/>
+    <button class="login-btn" id="login-btn" onclick="doLogin()">
+      <span id="login-btn-text">Sign In</span>
+      <div class="login-spinner" id="login-spinner"></div>
+    </button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ── DRAWER OVERLAY ── -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+<!-- ── DRAWER ── -->
+<div id="drawer">
+  <div class="drawer-header">
+    <div class="drawer-avatar" id="drawer-avatar">SA</div>
+    <div class="drawer-name" id="drawer-name">Loading…</div>
+    <div class="drawer-email" id="drawer-email">—</div>
+  </div>
+  <div class="drawer-storage">
+    <div class="storage-label" id="storage-label">— of — used</div>
+    <div class="storage-bar-bg">
+      <div class="storage-bar-fill" id="storage-bar-fill" style="width:0%"></div>
+    </div>
+    <div class="storage-text" id="storage-text">Loading storage info…</div>
+  </div>
+  <div class="drawer-nav">
+    <button class="nav-item active" onclick="navTo('drive')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/>
+      </svg>
+      My Drive
+    </button>
+    <button class="nav-item" onclick="navTo('recent')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+      </svg>
+      Recent
+    </button>
+    <button class="nav-item" onclick="navTo('quota')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Storage Quota
+    </button>
+  </div>
+  <div class="drawer-footer">
+    <button class="logout-btn" onclick="doLogout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      Sign Out
+    </button>
+  </div>
+</div>
+
+<!-- ── TOP BAR ── -->
+<div id="top-bar">
+  <button class="bar-btn" id="hamburger-btn" onclick="openDrawer()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+  <span id="bar-title">My Pocket Drive</span>
+  <input id="search-input" type="search" placeholder="Search files & folders…" style="display:none" oninput="onSearchInput(this.value)" onblur="if(!this.value) exitSearch()"/>
+  <button class="bar-btn" id="search-btn" onclick="enterSearch()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+  </button>
+  <button class="bar-btn" id="view-btn" onclick="toggleView()">
+    <svg id="view-icon-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+    </svg>
+    <svg id="view-icon-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+    </svg>
+  </button>
+  <button class="bar-btn" id="more-btn" onclick="toggleSortMenu()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/>
+    </svg>
+  </button>
+</div>
+
+<!-- ── SORT MENU ── -->
+<div id="sort-menu">
+  <button class="sort-item active" id="sort-name" onclick="setSort('name')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h12M3 18h6"/></svg>
+    Name
+  </button>
+  <button class="sort-item" id="sort-date" onclick="setSort('date')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Date
+  </button>
+  <button class="sort-item" id="sort-size" onclick="setSort('size')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/></svg>
+    Size
+  </button>
+</div>
+
+<!-- ── MAIN ── -->
+<div id="main">
+  <!-- breadcrumb -->
+  <div id="breadcrumb">
+    <span class="bc-item" onclick="goBreadcrumb(0)">My Drive</span>
+  </div>
+
+  <!-- quota banner -->
+  <div id="quota-banner"></div>
+
+  <!-- folders section -->
+  <div id="folders-section">
+    <div class="section-header" id="folders-header" style="display:none">Folders</div>
+    <div id="folder-grid"></div>
+  </div>
+
+  <!-- files section -->
+  <div id="files-section">
+    <div class="section-header" id="files-header" style="display:none">Files</div>
+    <div id="file-list"></div>
+  </div>
+
+  <!-- search results -->
+  <div id="search-results"></div>
+
+  <!-- empty state -->
+  <div id="empty-state" class="empty-state" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+    <p>This folder is empty</p>
+  </div>
+</div>
+
+<!-- ── FAB ── -->
+<button id="fab" onclick="toggleFab()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+</button>
+
+<div id="fab-menu">
+  <div class="fab-action">
+    <span class="fab-action-label">New folder</span>
+    <button class="fab-action-btn" onclick="openFolderModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+      </svg>
+    </button>
+  </div>
+  <div class="fab-action">
+    <span class="fab-action-label">Upload file</span>
+    <button class="fab-action-btn" onclick="triggerUpload()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+    </button>
+  </div>
+</div>
+<input type="file" id="file-input" style="display:none" multiple onchange="handleFileSelect(this)"/>
+
+<!-- ── BOTTOM SHEET (file/folder options) ── -->
+<div id="sheet-overlay" onclick="closeSheet()"></div>
+<div id="bottom-sheet">
+  <div class="sheet-handle"></div>
+  <div id="sheet-item-name" class="sheet-title"></div>
+  <div id="sheet-actions"></div>
+</div>
+
+<!-- ── NEW FOLDER MODAL ── -->
+<div id="folder-modal-overlay" onclick="e => { if(e.target===this) closeFolderModal(); }">
+  <div id="folder-modal">
+    <div class="modal-title">New Folder</div>
+    <input class="modal-input" id="folder-name-input" placeholder="Folder name" maxlength="100"/>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeFolderModal()">Cancel</button>
+      <button class="modal-btn confirm" onclick="createFolder()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── UPLOAD PROGRESS ── -->
+<div id="upload-progress">
+  <div class="upload-prog-label">
+    <span id="upload-file-name">Uploading…</span>
+    <span id="upload-pct">0%</span>
+  </div>
+  <div class="upload-prog-bar"><div class="upload-prog-fill" id="upload-prog-fill"></div></div>
+</div>
+
+<!-- ── TOAST ── -->
+<div id="toast"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+const S = {
+  token: localStorage.getItem('mpd_token') || '',
+  user: null,
+  currentFolderId: null,
+  folderStack: [],        // [{id, name}]
+  view: 'list',           // 'list' | 'grid'
+  sort: 'name',           // 'name' | 'date' | 'size'
+  folders: [],
+  files: [],
+  allItems: [],           // for search
+  currentSheet: null,     // {type: 'file'|'folder', item}
+  fabOpen: false,
+  searchMode: false,
+};
+
+// ── BACKEND URL ────────────────────────────────────────────────────────────
+// Reads api.txt (same mechanism as 404.html) or falls back to localhost
+let BACKEND = '';
+async function initBackend() {
+  try {
+    const r = await fetch('/api.txt', { cache: 'no-store' });
+    if (r.ok) {
+      const t = (await r.text()).trim();
+      if (t.startsWith('http')) BACKEND = t.replace(/\/$/, '');
+    }
+  } catch(e) {}
+  if (!BACKEND) BACKEND = window.location.origin;
+}
+
+// ── API ────────────────────────────────────────────────────────────────────
+async function api(method, path, body = null, isFormData = false) {
+  const opts = {
+    method,
+    headers: { Authorization: `Bearer ${S.token}` },
+  };
+  if (body && !isFormData) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body && isFormData) {
+    opts.body = body;
+  }
+  const res = await fetch(BACKEND + path, opts);
+  if (res.status === 401) { doLogout(); throw new Error('Unauthorized'); }
+  return res;
+}
+
+async function apiJSON(method, path, body = null) {
+  const res = await api(method, path, body);
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || res.statusText);
+  }
+  return res.json();
+}
+
+// ── AUTH ───────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  if (!user || !pass) { errEl.textContent = 'Enter username and password'; return; }
+
+  const btn = document.getElementById('login-btn');
+  const btnText = document.getElementById('login-btn-text');
+  const spinner = document.getElementById('login-spinner');
+  btn.disabled = true; btnText.style.display = 'none'; spinner.style.display = 'block';
+  errEl.textContent = '';
+
+  try {
+    const res = await fetch(BACKEND + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Login failed');
+    if (data.access_token) {
+      S.token = data.access_token;
+      localStorage.setItem('mpd_token', S.token);
+      hiddenLogin();
+      await initApp();
+    } else {
+      errEl.textContent = 'Login failed. Check credentials.';
+    }
+  } catch(e) {
+    errEl.textContent = e.message || 'Connection error';
+  } finally {
+    btn.disabled = false; btnText.style.display = ''; spinner.style.display = 'none';
+  }
+}
+
+function hiddenLogin() {
+  document.getElementById('login-screen').style.display = 'none';
+}
+
+function doLogout() {
+  S.token = '';
+  S.user = null;
+  localStorage.removeItem('mpd_token');
+  closeDrawer();
+  location.reload();
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function initApp() {
+  try {
+    S.user = await apiJSON('GET', '/auth/me');
+    renderDrawerUser();
+    await loadQuota();
+    await loadContents(null);
+  } catch(e) {
+    if (e.message !== 'Unauthorized') showToast('Error loading drive: ' + e.message);
+  }
+}
+
+function renderDrawerUser() {
+  if (!S.user) return;
+  const initials = (S.user.full_name || S.user.username || 'U')
+    .split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  document.getElementById('drawer-avatar').textContent = initials;
+  document.getElementById('drawer-name').textContent = S.user.full_name || S.user.username;
+  document.getElementById('drawer-email').textContent = S.user.email || '';
+}
+
+async function loadQuota() {
+  try {
+    const q = await apiJSON('GET', '/quota');
+    const lbl = document.getElementById('storage-label');
+    const fill = document.getElementById('storage-bar-fill');
+    const txt = document.getElementById('storage-text');
+    const pct = Math.min(q.percent || 0, 100);
+
+    lbl.textContent = `${q.used_human || '0 B'} of ${q.quota_human || '1 TB'} used`;
+    txt.textContent = `${q.remaining_human || '—'} remaining`;
+    fill.style.width = pct + '%';
+    fill.className = 'storage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+
+    // quota banner
+    const banner = document.getElementById('quota-banner');
+    banner.className = 'quota-banner';
+    if (q.status === 'full') {
+      banner.className = 'quota-banner full'; banner.textContent = q.message;
+    } else if (q.status === 'danger') {
+      banner.className = 'quota-banner danger'; banner.textContent = q.message;
+    } else if (q.status === 'warn') {
+      banner.className = 'quota-banner warn'; banner.textContent = q.message;
+    }
+  } catch(e) { /* quota endpoint optional */ }
+}
+
+// ── CONTENT LOADING ─────────────────────────────────────────────────────────
+async function loadContents(folderId) {
+  S.currentFolderId = folderId;
+  showLoadingSkeletons();
+
+  try {
+    // Load folders
+    const foldersRes = await apiJSON('GET',
+      folderId ? `/folders?parent_id=${folderId}` : '/folders'
+    );
+    S.folders = Array.isArray(foldersRes) ? foldersRes : (foldersRes.folders || []);
+
+    // Load files
+    const filesRes = await apiJSON('GET',
+      folderId ? `/files?folder_id=${folderId}` : '/files'
+    );
+    S.files = Array.isArray(filesRes) ? filesRes : (filesRes.files || []);
+
+    // Merge for search index
+    S.allItems = [
+      ...S.folders.map(f => ({...f, _type: 'folder'})),
+      ...S.files.map(f => ({...f, _type: 'file'})),
+    ];
+
+    applySort();
+    renderAll();
+    renderBreadcrumb();
+    updateTitle();
+  } catch(e) {
+    document.getElementById('folder-grid').innerHTML = '';
+    document.getElementById('file-list').innerHTML = '';
+    showToast('Failed to load contents');
+  }
+}
+
+function showLoadingSkeletons() {
+  const grid = document.getElementById('folder-grid');
+  grid.innerHTML = Array(4).fill(`
+    <div class="folder-cell">
+      <div class="skeleton" style="width:36px;height:36px;border-radius:8px;flex-shrink:0"></div>
+      <div class="skeleton" style="height:14px;flex:1;border-radius:4px"></div>
+    </div>
+  `).join('');
+  document.getElementById('file-list').innerHTML = '';
+}
+
+// ── SORT ───────────────────────────────────────────────────────────────────
+function applySort() {
+  const key = S.sort;
+  const sortFn = (a, b) => {
+    if (key === 'name') return (a.name||'').localeCompare(b.name||'');
+    if (key === 'date') return new Date(b.created_at||0) - new Date(a.created_at||0);
+    if (key === 'size') return (b.size||0) - (a.size||0);
+    return 0;
+  };
+  S.folders.sort(sortFn);
+  S.files.sort(sortFn);
+}
+
+function setSort(s) {
+  S.sort = s;
+  document.querySelectorAll('.sort-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('sort-' + s).classList.add('active');
+  closeSortMenu();
+  applySort();
+  renderAll();
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────────────
+function renderAll() {
+  renderFolders();
+  renderFiles();
+  renderEmptyState();
+}
+
+function renderFolders() {
+  const grid = document.getElementById('folder-grid');
+  const header = document.getElementById('folders-header');
+
+  if (S.folders.length === 0) {
+    grid.innerHTML = ''; header.style.display = 'none'; return;
+  }
+  header.style.display = '';
+  grid.innerHTML = S.folders.map(f => `
+    <div class="folder-cell" onclick="openFolder(${f.id}, '${escHtml(f.name)}')">
+      <svg class="folder-icon" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/>
+      </svg>
+      <span class="folder-name">${escHtml(f.name)}</span>
+      <button class="folder-info-btn" onclick="event.stopPropagation();openFolderSheet(${JSON.stringify(f).replace(/"/g,'&quot;')})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </button>
+    </div>
+  `).join('');
+}
+
+function renderFiles() {
+  const list = document.getElementById('file-list');
+  const header = document.getElementById('files-header');
+
+  if (S.files.length === 0) {
+    list.innerHTML = ''; list.className = ''; header.style.display = 'none'; return;
+  }
+  header.style.display = '';
+  list.className = S.view === 'grid' ? 'grid-view' : '';
+  list.innerHTML = S.files.map(f => renderFileRow(f)).join('');
+}
+
+function renderFileRow(f) {
+  const icon = fileIcon(f.mime_type, f.name);
+  const thumb = (f.thumbnail_path || f.thumbnail_msg_id)
+    ? `<img src="${BACKEND}/files/${f.id}/thumbnail?token=${S.token}" 
+          onerror="this.style.display='none';this.nextSibling.style.display='flex'"
+          alt="" loading="lazy"/>`
+    : '';
+  const sizeStr = f.size ? humanBytes(f.size) : '';
+  const dateStr = f.captured_at ? fmtDate(f.captured_at) : (f.created_at ? fmtDate(f.created_at) : '');
+  const meta = [sizeStr, dateStr].filter(Boolean).join(' · ');
+
+  return `
+    <div class="file-row" onclick="openFile(${f.id})">
+      <div class="file-thumb">
+        ${thumb}
+        <div class="file-icon-placeholder" style="${thumb ? 'display:none' : ''}">${icon}</div>
+      </div>
+      <div class="file-info">
+        <div class="file-name">${escHtml(f.name)}</div>
+        <div class="file-meta">${escHtml(meta)}</div>
+      </div>
+      <button class="file-options-btn" onclick="event.stopPropagation();openFileSheet(${JSON.stringify(f).replace(/"/g,'&quot;')})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
+function renderEmptyState() {
+  const empty = document.getElementById('empty-state');
+  const isEmpty = S.folders.length === 0 && S.files.length === 0;
+  empty.style.display = isEmpty ? 'block' : 'none';
+}
+
+// ── NAVIGATION ─────────────────────────────────────────────────────────────
+function openFolder(id, name) {
+  S.folderStack.push({ id: S.currentFolderId, name: currentFolderName() });
+  loadContents(id);
+  document.getElementById('breadcrumb').classList.add('visible');
+}
+
+function currentFolderName() {
+  if (!S.currentFolderId) return 'My Drive';
+  const last = S.folderStack[S.folderStack.length - 1];
+  return last ? last.name : 'My Drive';
+}
+
+function updateTitle() {
+  if (!S.currentFolderId) {
+    document.getElementById('bar-title').textContent = 'My Pocket Drive';
+  } else {
+    const folder = S.allItems.find(i => i._type === 'folder' && i.id === S.currentFolderId);
+    document.getElementById('bar-title').textContent = folder ? folder.name : 'Folder';
+  }
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  if (S.folderStack.length === 0) { bc.classList.remove('visible'); return; }
+  bc.classList.add('visible');
+
+  let html = `<span class="bc-item" onclick="goBreadcrumb(-1)">My Drive</span>`;
+  S.folderStack.slice(1).forEach((item, i) => {
+    html += `<span class="bc-sep">›</span>`;
+    html += `<span class="bc-item" onclick="goBreadcrumb(${i})">${escHtml(item.name || '…')}</span>`;
+  });
+  if (S.currentFolderId) {
+    const curr = S.folders[0]; // label already in title
+  }
+  bc.innerHTML = html;
+}
+
+function goBreadcrumb(idx) {
+  if (idx === -1 || idx === 0) {
+    S.folderStack = [];
+    loadContents(null);
+    document.getElementById('breadcrumb').classList.remove('visible');
+    return;
+  }
+  const target = S.folderStack[idx];
+  S.folderStack = S.folderStack.slice(0, idx);
+  loadContents(target.id);
+}
+
+function navTo(section) {
+  closeDrawer();
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+
+  if (section === 'drive') {
+    S.folderStack = [];
+    loadContents(null);
+  } else if (section === 'recent') {
+    loadRecent();
+  } else if (section === 'quota') {
+    showQuotaView();
+  }
+}
+
+async function loadRecent() {
+  document.getElementById('bar-title').textContent = 'Recent';
+  document.getElementById('breadcrumb').classList.remove('visible');
+  showLoadingSkeletons();
+  try {
+    const res = await apiJSON('GET', '/files?sort=created_at&limit=50');
+    S.folders = [];
+    S.files = Array.isArray(res) ? res : (res.files || []);
+    S.files.sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
+    renderAll();
+  } catch(e) { showToast('Could not load recent files'); }
+}
+
+function showQuotaView() {
+  document.getElementById('bar-title').textContent = 'Storage';
+  S.folders = []; S.files = [];
+  renderAll();
+  loadQuota();
+}
+
+// ── OPEN FILE ──────────────────────────────────────────────────────────────
+function openFile(id) {
+  window.open(`${BACKEND}/files/${id}/download?token=${S.token}`, '_blank');
+}
+
+// ── SEARCH ─────────────────────────────────────────────────────────────────
+function enterSearch() {
+  S.searchMode = true;
+  const bar = document.getElementById('top-bar');
+  bar.classList.add('search-mode');
+  document.getElementById('bar-title').style.display = 'none';
+  document.getElementById('hamburger-btn').innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,19 5,12 12,5"/>
+    </svg>`;
+  document.getElementById('hamburger-btn').onclick = exitSearch;
+  document.getElementById('search-btn').style.display = 'none';
+  const inp = document.getElementById('search-input');
+  inp.style.display = '';
+  inp.focus();
+  document.getElementById('folders-section').style.display = 'none';
+  document.getElementById('files-section').style.display = 'none';
+  document.getElementById('search-results').classList.add('visible');
+  document.getElementById('search-results').innerHTML = `
+    <div style="text-align:center;padding:48px 24px;color:var(--text-muted);font-size:14px">
+      Type to search…
+    </div>`;
+}
+
+function exitSearch() {
+  S.searchMode = false;
+  document.getElementById('top-bar').classList.remove('search-mode');
+  document.getElementById('bar-title').style.display = '';
+  document.getElementById('hamburger-btn').innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>`;
+  document.getElementById('hamburger-btn').onclick = openDrawer;
+  document.getElementById('search-btn').style.display = '';
+  document.getElementById('search-input').style.display = 'none';
+  document.getElementById('search-input').value = '';
+  document.getElementById('folders-section').style.display = '';
+  document.getElementById('files-section').style.display = '';
+  document.getElementById('search-results').classList.remove('visible');
+}
+
+let _searchTimer = null;
+function onSearchInput(q) {
+  clearTimeout(_searchTimer);
+  if (!q.trim()) {
+    document.getElementById('search-results').innerHTML = `
+      <div style="text-align:center;padding:48px 24px;color:var(--text-muted);font-size:14px">Type to search…</div>`;
+    return;
+  }
+  _searchTimer = setTimeout(() => performSearch(q.trim()), 300);
+}
+
+async function performSearch(q) {
+  try {
+    const res = await apiJSON('GET', `/search?q=${encodeURIComponent(q)}`);
+    const items = Array.isArray(res) ? res : (res.results || res.files || []);
+    renderSearchResults(q, items);
+  } catch(e) {
+    // fallback: local filter
+    const lower = q.toLowerCase();
+    const items = S.allItems.filter(i => (i.name||'').toLowerCase().includes(lower));
+    renderSearchResults(q, items);
+  }
+}
+
+function renderSearchResults(q, items) {
+  const el = document.getElementById('search-results');
+  if (!items.length) {
+    el.innerHTML = `<div style="text-align:center;padding:48px 24px;color:var(--text-muted);font-size:14px">No results for "${escHtml(q)}"</div>`;
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const isFolder = item._type === 'folder' || item.mime_type === undefined;
+    const icon = isFolder
+      ? `<svg viewBox="0 0 24 24" fill="currentColor" style="width:22px;height:22px;color:var(--folder-icon)"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg>`
+      : fileIcon(item.mime_type, item.name);
+    const sub = isFolder ? 'Folder' : (humanBytes(item.size||0));
+    return `
+      <div class="search-result-row" onclick="${isFolder ? `openFolder(${item.id},'${escHtml(item.name)}')` : `openFile(${item.id})`}">
+        <div class="search-result-icon">${icon}</div>
+        <div>
+          <div class="search-result-name">${escHtml(item.name)}</div>
+          <div class="search-result-type">${sub}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── DRAWER ─────────────────────────────────────────────────────────────────
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
+}
+
+// ── VIEW TOGGLE ─────────────────────────────────────────────────────────────
+function toggleView() {
+  S.view = S.view === 'list' ? 'grid' : 'list';
+  document.getElementById('view-icon-grid').style.display = S.view === 'list' ? '' : 'none';
+  document.getElementById('view-icon-list').style.display = S.view === 'grid' ? '' : 'none';
+  renderFiles();
+}
+
+// ── SORT MENU ──────────────────────────────────────────────────────────────
+function toggleSortMenu() {
+  document.getElementById('sort-menu').classList.toggle('open');
+}
+function closeSortMenu() {
+  document.getElementById('sort-menu').classList.remove('open');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#sort-menu') && !e.target.closest('#more-btn')) closeSortMenu();
+});
+
+// ── FAB ────────────────────────────────────────────────────────────────────
+function toggleFab() {
+  S.fabOpen = !S.fabOpen;
+  document.getElementById('fab-menu').classList.toggle('open', S.fabOpen);
+  const icon = document.querySelector('#fab svg');
+  icon.style.transform = S.fabOpen ? 'rotate(45deg)' : '';
+  icon.style.transition = 'transform 0.2s';
+}
+function closeFab() { S.fabOpen = false; document.getElementById('fab-menu').classList.remove('open'); }
+
+// ── BOTTOM SHEET ───────────────────────────────────────────────────────────
+function openFileSheet(f) {
+  S.currentSheet = { type: 'file', item: f };
+  document.getElementById('sheet-item-name').textContent = f.name;
+  document.getElementById('sheet-actions').innerHTML = `
+    <button class="sheet-item" onclick="openFile(${f.id});closeSheet()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download
+    </button>
+    <button class="sheet-item" onclick="shareFile(${f.id});closeSheet()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      Share
+    </button>
+    <button class="sheet-item danger" onclick="deleteFile(${f.id},'${escHtml(f.name)}');closeSheet()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2 0 0,1-2,2H7a2,2 0 0,1-2-2V6m3,0V4a1,1 0 0,1 1-1h4a1,1 0 0,1 1,1v2"/></svg>
+      Delete
+    </button>
+  `;
+  openSheet();
+}
+
+function openFolderSheet(f) {
+  S.currentSheet = { type: 'folder', item: f };
+  document.getElementById('sheet-item-name').textContent = f.name;
+  document.getElementById('sheet-actions').innerHTML = `
+    <button class="sheet-item" onclick="openFolder(${f.id},'${escHtml(f.name)}');closeSheet()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Open
+    </button>
+    <button class="sheet-item danger" onclick="deleteFolder(${f.id},'${escHtml(f.name)}');closeSheet()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2 0 0,1-2,2H7a2,2 0 0,1-2-2V6m3,0V4a1,1 0 0,1 1-1h4a1,1 0 0,1 1,1v2"/></svg>
+      Delete
+    </button>
+  `;
+  openSheet();
+}
+
+function openSheet() {
+  document.getElementById('sheet-overlay').classList.add('open');
+  document.getElementById('bottom-sheet').classList.add('open');
+}
+function closeSheet() {
+  document.getElementById('sheet-overlay').classList.remove('open');
+  document.getElementById('bottom-sheet').classList.remove('open');
+}
+
+// ── NEW FOLDER ──────────────────────────────────────────────────────────────
+function openFolderModal() {
+  closeFab();
+  document.getElementById('folder-modal-overlay').classList.add('open');
+  document.getElementById('folder-name-input').value = '';
+  setTimeout(() => document.getElementById('folder-name-input').focus(), 100);
+}
+function closeFolderModal() {
+  document.getElementById('folder-modal-overlay').classList.remove('open');
+}
+document.getElementById('folder-modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeFolderModal();
+});
+document.getElementById('folder-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') createFolder();
+});
+
+async function createFolder() {
+  const name = document.getElementById('folder-name-input').value.trim();
+  if (!name) return;
+  closeFolderModal();
+  try {
+    await apiJSON('POST', '/folders', { name, parent_id: S.currentFolderId });
+    showToast('Folder created');
+    await loadContents(S.currentFolderId);
+  } catch(e) { showToast('Failed to create folder: ' + e.message); }
+}
+
+// ── UPLOAD ─────────────────────────────────────────────────────────────────
+function triggerUpload() { closeFab(); document.getElementById('file-input').click(); }
+
+async function handleFileSelect(input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  input.value = '';
+  for (const file of files) {
+    await uploadFile(file);
+  }
+  await loadContents(S.currentFolderId);
+  await loadQuota();
+}
+
+async function uploadFile(file) {
+  const prog = document.getElementById('upload-progress');
+  const progName = document.getElementById('upload-file-name');
+  const progPct = document.getElementById('upload-pct');
+  const progFill = document.getElementById('upload-prog-fill');
+
+  prog.classList.add('visible');
+  progName.textContent = file.name;
+  progPct.textContent = '0%';
+  progFill.style.width = '0%';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  if (S.currentFolderId) fd.append('folder_id', S.currentFolderId);
+
+  try {
+    const xhr = new XMLHttpRequest();
+    await new Promise((resolve, reject) => {
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          progFill.style.width = pct + '%';
+          progPct.textContent = pct + '%';
+        }
+      };
+      xhr.onload = () => xhr.status < 400 ? resolve() : reject(new Error(xhr.responseText));
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.open('POST', BACKEND + '/files/upload');
+      xhr.setRequestHeader('Authorization', `Bearer ${S.token}`);
+      xhr.send(fd);
+    });
+    showToast(`${file.name} uploaded`);
+  } catch(e) {
+    showToast('Upload failed: ' + e.message);
+  } finally {
+    prog.classList.remove('visible');
+  }
+}
+
+// ── SHARE ───────────────────────────────────────────────────────────────────
+async function shareFile(id) {
+  try {
+    const res = await apiJSON('POST', `/files/${id}/share`);
+    const url = res.share_url || res.url || `${BACKEND}/share/${res.share_id}`;
+    if (navigator.share) {
+      await navigator.share({ title: 'My Pocket Drive', url });
+    } else {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied to clipboard');
+    }
+  } catch(e) { showToast('Could not create share link'); }
+}
+
+// ── DELETE ──────────────────────────────────────────────────────────────────
+async function deleteFile(id, name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  try {
+    await api('DELETE', `/files/${id}`);
+    showToast('File deleted');
+    await loadContents(S.currentFolderId);
+    await loadQuota();
+  } catch(e) { showToast('Delete failed'); }
+}
+
+async function deleteFolder(id, name) {
+  if (!confirm(`Delete folder "${name}" and all its contents?`)) return;
+  try {
+    await api('DELETE', `/folders/${id}`);
+    showToast('Folder deleted');
+    await loadContents(S.currentFolderId);
+  } catch(e) { showToast('Delete failed'); }
+}
+
+// ── HELPERS ─────────────────────────────────────────────────────────────────
+function showToast(msg, dur = 2400) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function humanBytes(n) {
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length-1) { n /= 1024; i++; }
+  return `${Math.round(n * 10) / 10} ${units[i]}`;
+}
+
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  const now = new Date();
+  const diffMs = now - d;
+  if (diffMs < 86400000) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  if (diffMs < 604800000) return d.toLocaleDateString([], {weekday:'short'});
+  return d.toLocaleDateString([], {month:'short',day:'numeric'});
+}
+
+function fileIcon(mime = '', name = '') {
+  const ext = name.split('.').pop().toLowerCase();
+  const isPdf = mime.includes('pdf') || ext === 'pdf';
+  const isImg = mime.includes('image') || ['jpg','jpeg','png','gif','webp','heic','bmp'].includes(ext);
+  const isVid = mime.includes('video') || ['mp4','mov','avi','mkv'].includes(ext);
+  const isAud = mime.includes('audio') || ['mp3','wav','aac','flac','ogg'].includes(ext);
+  const isDoc = ['doc','docx','txt','odt'].includes(ext) || mime.includes('document');
+  const isZip = ['zip','rar','7z','tar','gz'].includes(ext);
+
+  if (isPdf) return `<svg class="icon-pdf" viewBox="0 0 24 24" fill="currentColor" style="width:26px;height:26px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8" fill="none" stroke="white" stroke-width="1.5"/><text x="5" y="19" font-size="5" fill="white" font-weight="bold">PDF</text></svg>`;
+  if (isImg) return `<svg class="icon-img" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>`;
+  if (isVid) return `<svg class="icon-vid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><rect x="2" y="2" width="20" height="20" rx="2.18"/><polygon points="10,8 16,12 10,16 10,8" fill="currentColor" stroke="none"/></svg>`;
+  if (isAud) return `<svg class="icon-aud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+  if (isDoc) return `<svg class="icon-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>`;
+  if (isZip) return `<svg class="icon-zip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>`;
+  return `<svg class="icon-gen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:26px;height:26px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>`;
+}
+
+// ── KEYBOARD SHORTCUT ───────────────────────────────────────────────────────
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ── BOOT ───────────────────────────────────────────────────────────────────
+(async function boot() {
+  await initBackend();
+  if (S.token) {
+    hiddenLogin();
+    await initApp();
+  }
+})();
+</script>
+</body>
+</html>
