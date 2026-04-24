@@ -7533,8 +7533,9 @@ function dbUpdateDevicePanel(){
 
       // Use the first ONLINE device as primary — never fall back to an offline one
       var primaryOnline = online[0] || null;
-      var anyDevice     = devs[0]   || null;  // for name display only when offline
-      var primaryWake = anyDevice && anyDevice.wake ? anyDevice.wake : null;
+      var anyDevice     = devs[0]   || null;
+      var primaryDevice = primaryOnline || anyDevice || null;
+      var primaryWake = primaryDevice && primaryDevice.wake ? primaryDevice.wake : null;
 
       if(primaryOnline){
         // ── ONLINE ──────────────────────────────────────────────────────────
@@ -7546,10 +7547,17 @@ function dbUpdateDevicePanel(){
         if(agentBadge) agentBadge.className = 'db-sync-badge up';
         if(agentBadgeTxt) agentBadgeTxt.textContent = 'Agent online';
         if(agentWakeBtn){
-          agentWakeBtn.style.display = 'none';
-          agentWakeBtn.disabled = true;
-          agentWakeBtn.textContent = 'Power On';
-          agentWakeBtn.title = '';
+          if(primaryWake && primaryWake.ui && primaryWake.ui.show_button){
+            agentWakeBtn.style.display = 'inline-flex';
+            agentWakeBtn.disabled = !primaryWake.ui.available;
+            agentWakeBtn.textContent = primaryWake.ui.label || 'Wake Setup';
+            agentWakeBtn.title = primaryWake.ui.tooltip || '';
+          } else {
+            agentWakeBtn.style.display = 'none';
+            agentWakeBtn.disabled = true;
+            agentWakeBtn.textContent = 'Power On';
+            agentWakeBtn.title = '';
+          }
         }
         // Fetch live storage stats
         api('GET', '/nas/device/storage-stats').then(function(s){
@@ -7647,10 +7655,17 @@ async function dbWakePrimaryDevice(){
     }
     var r = await api('GET', '/nas/devices');
     var devs = (r && r.devices) || [];
-    var target = devs.find(function(d){ return !d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; }) || devs[0];
+    var target = devs.find(function(d){ return d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; })
+      || devs.find(function(d){ return !d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; })
+      || devs[0];
     if(!target || !target.id) throw new Error('No device is available for wake.');
+    if(target.is_online){
+      var onlineMsg = (target.wake && target.wake.ui && target.wake.ui.tooltip) || 'Wake setup is available while the agent is online.';
+      if(typeof toast === 'function') toast(onlineMsg, 'info');
+      return;
+    }
     var wake = await api('POST', '/device/' + encodeURIComponent(target.id) + '/wake', { setup_if_needed:true });
-    var detail = (wake && (wake.detail || wake.status)) || 'Wake request sent.';
+    var detail = (wake && (wake.detail || wake.message || wake.status)) || 'Wake request sent.';
     if(typeof toast === 'function') toast(detail, 'success');
     dbUpdateDevicePanel();
   }catch(err){
