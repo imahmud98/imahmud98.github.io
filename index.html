@@ -7033,6 +7033,7 @@ async function revokeShare(shareId) {
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="db-pulse"><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       <span id="db-agent-sync-txt">Agent offline</span>
                     </span>
+                    <button class="db-use-btn" id="db-agent-wake-btn" onclick="event.stopPropagation();dbWakePrimaryDevice()" style="display:none;background:#ECFDF5;color:#065F46;border-color:#A7F3D0">Power On</button>
                     <button class="db-use-btn db-active" id="db-agent-btn" onclick="event.stopPropagation();dbSelectDevice('agent')">
                       ✓ Active destination
                     </button>
@@ -7520,6 +7521,7 @@ function dbUpdateDevicePanel(){
     var agentActTxt = document.getElementById('db-agent-act-txt');
     var agentBadge  = document.getElementById('db-agent-sync-badge');
     var agentBadgeTxt = document.getElementById('db-agent-sync-txt');
+    var agentWakeBtn = document.getElementById('db-agent-wake-btn');
     var agentPbar = document.getElementById('db-agent-pbar');
     var badge = document.getElementById('db-dev-badge');
 
@@ -7532,6 +7534,7 @@ function dbUpdateDevicePanel(){
       // Use the first ONLINE device as primary — never fall back to an offline one
       var primaryOnline = online[0] || null;
       var anyDevice     = devs[0]   || null;  // for name display only when offline
+      var primaryWake = anyDevice && anyDevice.wake ? anyDevice.wake : null;
 
       if(primaryOnline){
         // ── ONLINE ──────────────────────────────────────────────────────────
@@ -7542,6 +7545,12 @@ function dbUpdateDevicePanel(){
         if(agentActTxt) agentActTxt.textContent = 'Agent connected';
         if(agentBadge) agentBadge.className = 'db-sync-badge up';
         if(agentBadgeTxt) agentBadgeTxt.textContent = 'Agent online';
+        if(agentWakeBtn){
+          agentWakeBtn.style.display = 'none';
+          agentWakeBtn.disabled = true;
+          agentWakeBtn.textContent = 'Power On';
+          agentWakeBtn.title = '';
+        }
         // Fetch live storage stats
         api('GET', '/nas/device/storage-stats').then(function(s){
           if(!s) return;
@@ -7562,6 +7571,19 @@ function dbUpdateDevicePanel(){
         if(agentStor) agentStor.textContent = anyDevice ? 'Last seen offline' : 'No agent registered';
         if(agentBadge) agentBadge.className = 'db-sync-badge';
         if(agentBadgeTxt) agentBadgeTxt.textContent = 'Agent offline';
+        if(agentWakeBtn){
+          if(primaryWake && primaryWake.ui && primaryWake.ui.show_button){
+            agentWakeBtn.style.display = 'inline-flex';
+            agentWakeBtn.disabled = !primaryWake.ui.available;
+            agentWakeBtn.textContent = primaryWake.ui.label || 'Power On';
+            agentWakeBtn.title = primaryWake.ui.tooltip || '';
+          } else {
+            agentWakeBtn.style.display = 'none';
+            agentWakeBtn.disabled = true;
+            agentWakeBtn.textContent = 'Power On';
+            agentWakeBtn.title = '';
+          }
+        }
         if(agentAct) agentAct.style.display = 'none';
         if(agentPbar) agentPbar.style.width = '0%';
         if(badge) badge.textContent = '0 Online';
@@ -7613,6 +7635,33 @@ function dbUpdateDevicePanel(){
     }
     _updateCloudStorCard();
   } catch(e){}
+}
+
+async function dbWakePrimaryDevice(){
+  try{
+    var btn = document.getElementById('db-agent-wake-btn');
+    if(btn && btn.disabled) return;
+    if(btn){
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+    }
+    var r = await api('GET', '/nas/devices');
+    var devs = (r && r.devices) || [];
+    var target = devs.find(function(d){ return !d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; }) || devs[0];
+    if(!target || !target.id) throw new Error('No device is available for wake.');
+    var wake = await api('POST', '/device/' + encodeURIComponent(target.id) + '/wake', { setup_if_needed:true });
+    var detail = (wake && (wake.detail || wake.status)) || 'Wake request sent.';
+    if(typeof toast === 'function') toast(detail, 'success');
+    dbUpdateDevicePanel();
+  }catch(err){
+    if(typeof toast === 'function') toast((err && err.message) || 'Wake request failed.', 'error');
+  }finally{
+    var btn2 = document.getElementById('db-agent-wake-btn');
+    if(btn2){
+      btn2.disabled = false;
+    }
+    dbUpdateDevicePanel();
+  }
 }
 
 // ── Shared users ────────────────────────────────────────────────────────────
