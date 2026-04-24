@@ -3769,12 +3769,21 @@ async function _resolveStorageTarget(fileSize){
 //   - tunnel never carries a giant WebSocket message
 //   - direct LAN never loads the whole file in browser RAM
 //   - each chunk can be retried independently on network hiccups
-// NAS relay upload chunking — 5 MB chunks keep WS messages manageable while
-// reducing round-trips vs 2 MB (fewer chunks = faster for large files).
-// 5 MB → ~6.7 MB base64 per WS frame; still well within CF/WS limits.
+// NAS relay upload chunking.
+// Use slightly larger slices for relay uploads so very large files spend less
+// time paying per-chunk HTTP/Worker/WebSocket overhead, while still keeping
+// each WS frame comfortably below typical proxy limits.
 const _NAS_RELAY_CHUNK_THRESHOLD = 5 * 1024 * 1024;   // 5 MB — use chunked above this
-const _NAS_RELAY_CHUNK_SIZE      = 5 * 1024 * 1024;   // 5 MB per chunk
-const _NAS_RELAY_PARALLEL        = 1;                  // serial over WebSocket tunnel — parallel sends corrupt append order on retry
+const _NAS_RELAY_CHUNK_SIZE      = 8 * 1024 * 1024;   // 8 MB per chunk — fewer round-trips for large NAS uploads
+const _NAS_RELAY_PARALLEL        = 1;                  // keep relay sends serial for now — safest over one WS tunnel
+
+function _nasRelayChunkTimeoutMs(byteLength){
+  // Scale timeout with chunk size so slower uplinks and low-spec NAS agents do
+  // not fail just because we made chunks larger to reduce overhead.
+  const minBytesPerSecond = 24 * 1024; // ~192 kbps floor
+  const estimated = Math.ceil((byteLength / minBytesPerSecond) * 1000) + 60000;
+  return Math.max(180000, Math.min(600000, estimated));
+}
 // Direct LAN also gets chunked above this threshold to cap browser RAM usage
 // and enable per-chunk retries on flaky local networks / old PCs.
 const _NAS_DIRECT_CHUNK_THRESHOLD =  5 * 1024 * 1024; // 5 MB
@@ -3850,9 +3859,9 @@ async function _uploadNasDirectChunked(item, info, folderId){
 }
 
 async function _uploadNasRelayChunked(item, info, folderId){
-  // Send file in 5 MB slices to /nas/relay/{machine_id}/upload-chunk.
-  // Up to _NAS_RELAY_PARALLEL chunks are sent concurrently so network round-trip
-  // latency on one chunk overlaps with the next — ~3× faster on typical broadband.
+  // Send the file in medium-sized slices to /nas/relay/{machine_id}/upload-chunk.
+  // The current relay path keeps chunks serial over one WebSocket tunnel for
+  // safety, so larger chunks reduce avoidable per-chunk overhead on big files.
   // Token is only refreshed when near-expiry (smart), not before every chunk.
   const uploadId   = _makeUploadId();
   const file       = item.file;
@@ -3918,7 +3927,7 @@ async function _uploadNasRelayChunked(item, info, folderId){
             }
           };
           xhr.onerror   = () => reject(new Error('NAS network error'));
-          xhr.timeout   = 180000;  // 3 min per 5 MB — generous for slow links (0.2 Mbps)
+          xhr.timeout   = _nasRelayChunkTimeoutMs(blob.size);
           xhr.ontimeout = () => reject(new Error('NAS chunk timed out'));
           xhr.send(blob);
         });
