@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -2354,7 +2354,7 @@ function updateStorageUI(usedBytes, quotaBytes, tier){
     }
   }
   if(sbText)   sbText.textContent = usedH+' / '+quotaH;
-  if(sbDetail) sbDetail.textContent = pctRnd+'% used Â· '+remH+' free';
+  if(sbDetail) sbDetail.textContent = pctRnd+'% used - '+remH+' free';
 
   // Mobile drawer
   const mobFill = document.getElementById('mob-storage-fill');
@@ -2365,7 +2365,7 @@ function updateStorageUI(usedBytes, quotaBytes, tier){
     if(pct>=90) mobFill.classList.add('danger');
     else if(pct>=70) mobFill.classList.add('warn');
   }
-  if(mobText) mobText.textContent = usedH+' / '+quotaH+' Â· '+pctRnd+'% used Â· '+remH+' free';
+  if(mobText) mobText.textContent = usedH+' / '+quotaH+' - '+pctRnd+'% used - '+remH+' free';
 
   // Store current values for delta calculations
   S._storageUsed  = usedBytes;
@@ -5768,7 +5768,14 @@ function _invokeDeclarativeStatement(stmt, el, event){
 function _runDeclarativeClick(el, event){
   const script=(el.getAttribute('data-click')||'').trim();
   if(!script) return;
-  event.preventDefault();
+  const tag=(el.tagName||'').toUpperCase();
+  const href=(el.getAttribute('href')||'').trim();
+  const type=(el.getAttribute('type')||'').trim().toLowerCase();
+  const shouldPreventDefault =
+    el.hasAttribute('data-prevent-default') ||
+    tag === 'A' ||
+    (tag === 'BUTTON' && type === 'submit');
+  if(shouldPreventDefault) event.preventDefault();
   _splitDeclarativeParts(script,';').forEach(stmt=>_invokeDeclarativeStatement(stmt, el, event));
 }
 document.addEventListener('click',function(event){
@@ -5978,7 +5985,7 @@ function renderFiles(){
         </div>
         <div style="padding:8px 10px;background:#fff;">
           <div style="font-size:12px;font-weight:500;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(f.name)}">${esc(f.name)}</div>
-          <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">${fmtSize(f.size)}${f._nas?` Â· <span style="color:var(--p);font-weight:600;">ðŸ’¾ NAS</span>`:''}</div>
+          <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">${fmtSize(f.size)}${f._nas?` - <span style="color:var(--p);font-weight:600;">NAS</span>`:''}</div>
         </div>
       </div>`;
     }).join('');
@@ -7064,14 +7071,14 @@ async function revokeShare(shareId) {
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:nowrap;min-width:0;overflow:hidden;">
           <span style="font-size:13px;font-weight:600;color:#202124;white-space:nowrap;">Storage</span>
           <span id="sb-tier-badge" style="display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:#f1f3f4;color:#5f6368;white-space:nowrap;flex-shrink:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;"></span>
-          <span id="sb-storage-text" style="margin-left:auto;font-size:10px;color:#5f6368;font-weight:500;text-align:right;white-space:nowrap;min-width:0;">â€”</span>
+          <span id="sb-storage-text" style="margin-left:auto;font-size:10px;color:#5f6368;font-weight:500;text-align:right;white-space:nowrap;min-width:0;">-</span>
         </div>
         <div class="sb-storage-track" style="height:6px;border-radius:99px;background:#e0e0e0;overflow:hidden;margin-bottom:5px;">
           <div class="sb-storage-fill" id="sb-storage-fill" style="width:0%;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--p),var(--acd));transition:width .4s;"></div>
         </div>
         <div id="sb-storage-detail" style="font-size:11px;color:#9aa0a6;margin-bottom:10px;">0% used</div>
         <div class="sb-e2e" style="display:flex;align-items:center;gap:5px;font-size:11px;color:#9CA3AF;padding-top:8px;border-top:1px solid #f1f3f4;">
-          ðŸ”’ <span>End-to-End Encrypted</span>
+          Secure <span>End-to-End Encrypted</span>
         </div>
       </div>
     </aside>
@@ -7358,7 +7365,7 @@ async function revokeShare(shareId) {
                     </span>
                     <button class="db-use-btn" id="db-agent-wake-btn" data-click="event.stopPropagation();dbWakePrimaryDevice()" style="display:none;background:#ECFDF5;color:#065F46;border-color:#A7F3D0">Power On</button>
                     <button class="db-use-btn db-active" id="db-agent-btn" data-click="event.stopPropagation();dbSelectDevice('agent')">
-                      âœ“ Active destination
+                      Active destination
                     </button>
                   </div>
                 </div>
@@ -7417,7 +7424,7 @@ async function revokeShare(shareId) {
                 <!-- NAS -->
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                   <div class="db-sub-title">NAS Shared Users</div>
-                  <span class="db-badge" id="db-nas-seats">â€” seats</span>
+                  <span class="db-badge" id="db-nas-seats">- seats</span>
                 </div>
                 <div id="db-nas-list"></div>
                 <div class="db-add-row">
@@ -7431,7 +7438,7 @@ async function revokeShare(shareId) {
                 <!-- Cloud -->
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                   <div class="db-sub-title">Cloud Shared Users</div>
-                  <span class="db-badge" id="db-cloud-seats">â€” seats</span>
+                  <span class="db-badge" id="db-cloud-seats">- seats</span>
                 </div>
                 <div id="db-cloud-list"></div>
                 <div class="db-add-row">
@@ -7810,13 +7817,13 @@ function dbSelectDevice(type){
     S._forceCloud = false;
     if(ac) ac.classList.add('db-sel');
     if(cc) cc.classList.remove('db-sel');
-    if(ab){ ab.classList.add('db-active'); ab.textContent = 'âœ“ Active destination'; }
+    if(ab){ ab.classList.add('db-active'); ab.textContent = 'Active destination'; }
     if(cb){ cb.classList.remove('db-active'); cb.textContent = 'Use Cloud'; }
   } else {
     S._forceCloud = true;
     if(cc) cc.classList.add('db-sel');
     if(ac) ac.classList.remove('db-sel');
-    if(cb){ cb.classList.add('db-active'); cb.textContent = 'âœ“ Using Cloud'; }
+    if(cb){ cb.classList.add('db-active'); cb.textContent = 'Using Cloud'; }
     if(ab){ ab.classList.remove('db-active'); ab.textContent = 'Use this device'; }
   }
 }
@@ -8023,7 +8030,7 @@ function dbRenderUserList(type){
       + '<div class="db-empty-txt">No ' + type + ' members yet</div>'
       + '</div>'
       + '<div class="db-ref-hint">Share your ' + label + ' with friends.<br>'
-      + '<a class="db-ref-link" data-click="showSection(\'referral\')">Copy your referral link â†’</a></div>';
+      + '<a class="db-ref-link" data-click="showSection(\'referral\')">Copy your referral link -></a></div>';
     return;
   }
 
