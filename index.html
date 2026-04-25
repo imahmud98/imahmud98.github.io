@@ -3862,6 +3862,22 @@ function _canUseNasDirectSession(session){
   );
 }
 
+function _normalizeNasDirectSession(session){
+  if(!_canUseNasDirectSession(session)) return session;
+  const direct = Object.assign({}, session.direct || {});
+  const machineId = String(session.machine_id || '');
+  if(location.protocol === 'https:' && String(direct.base_url || direct.upload_chunk_url || '').startsWith('http:') && machineId){
+    const base = `${API}/nas/transfer/public/${encodeURIComponent(machineId)}`;
+    direct.base_url = base;
+    direct.upload_chunk_url = `${base}/upload-chunk`;
+    direct.complete_url = `${base}/complete`;
+    direct.abort_url = `${base}/abort`;
+    direct.status_url = `${base}/status`;
+    direct.access_mode = 'public_ingress_client';
+  }
+  return Object.assign({}, session, { direct });
+}
+
 async function _waitForNasTransferSession(sessionId){
   for(let attempt = 0; attempt < 20; attempt++){
     const status = await api('GET', `/nas/transfer/session/${sessionId}`);
@@ -4162,7 +4178,7 @@ async function _uploadNasRelayChunked(item, info, folderId){
 async function _uploadNasDirect(item, folderId){
   item.status='uploading'; item.progress=0; renderUploadQ();
   try{
-    const transferSession = await _requestNasTransferSession(item, folderId);
+    const transferSession = _normalizeNasDirectSession(await _requestNasTransferSession(item, folderId));
     if(_canUseNasDirectSession(transferSession)){
       const directBase = transferSession.direct.base_url || '';
       if(!(location.protocol === 'https:' && directBase.startsWith('http:'))){
