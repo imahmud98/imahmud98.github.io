@@ -8792,7 +8792,10 @@ function _safeStr(s,max){
 // DROPDOWN SYSTEM (settings + profile)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function hdToggleDd(name, e){
-  if(e) e.stopPropagation();
+  if(e){
+    e.preventDefault();
+    e.stopPropagation();
+  }
   const dd=document.getElementById('hd-dd-'+name);
   if(!dd) return;
   const isOpen=dd.classList.contains('open');
@@ -8808,7 +8811,10 @@ function hdToggleDd(name, e){
 function hdCloseDd(name){
   const dd=document.getElementById('hd-dd-'+name);
   if(dd) dd.classList.remove('open');
+  document.querySelectorAll('.hd-dd-trigger,.hd-avatar-btn').forEach(b=>b.setAttribute('aria-expanded','false'));
 }
+window.hdToggleDd = hdToggleDd;
+window.hdCloseDd = hdCloseDd;
 // Close all dropdowns on outside click
 document.addEventListener('click', function(){
   document.querySelectorAll('.hd-dropdown.open').forEach(el=>el.classList.remove('open'));
