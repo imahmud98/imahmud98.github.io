@@ -3298,28 +3298,36 @@ async function openCloudPreview(fileId, source){
   if (!eligibility.supported) return;
 
   try {
-    const resp = await fetch(`${API}/files/${file.id}/download`, {
-      headers: {
-        'Authorization': `Bearer ${S.token}`,
-        'ngrok-skip-browser-warning': 'true',
-        'Cache-Control': 'no-store',
-      }
-    });
-    if (!resp.ok) throw new Error('Download failed with status ' + resp.status);
-    const rawBuf = await resp.arrayBuffer();
-    const plainBuf = await _decryptDownloadedBytes(rawBuf);
+    let blob;
+    if(file.storage_version === 'client_e2ee_s3'){
+      blob = await _downloadDirectCloudE2EE(
+        {...file, status:'preview', progress:0},
+        null,
+        {returnBlob:true}
+      );
+    } else {
+      const resp = await fetch(`${API}/files/${file.id}/download`, {
+        headers: {
+          'Authorization': `Bearer ${S.token}`,
+          'ngrok-skip-browser-warning': 'true',
+          'Cache-Control': 'no-store',
+        }
+      });
+      if (!resp.ok) throw new Error('Download failed with status ' + resp.status);
+      const rawBuf = await resp.arrayBuffer();
+      const plainBuf = await _decryptDownloadedBytes(rawBuf);
+      blob = new Blob([plainBuf], { type: file.mime_type || 'application/octet-stream' });
+    }
 
     if (eligibility.kind === 'image') {
-      const blob = new Blob([plainBuf], { type: file.mime_type || 'application/octet-stream' });
       PreviewState.objectUrl = URL.createObjectURL(blob);
       PreviewState.zoom = 1;
       PreviewState.mode = 'image_ready';
     } else if (eligibility.kind === 'pdf') {
-      const blob = new Blob([plainBuf], { type: 'application/pdf' });
       PreviewState.objectUrl = URL.createObjectURL(blob);
       PreviewState.mode = 'pdf_ready';
     } else if (eligibility.kind === 'text') {
-      PreviewState.textContent = new TextDecoder('utf-8', { fatal: false }).decode(plainBuf);
+      PreviewState.textContent = await blob.text();
       PreviewState.mode = 'text_ready';
     } else {
       PreviewState.mode = 'fallback';
@@ -3510,7 +3518,7 @@ const DirectCloudE2EE = {
   }
 };
 
-async function _downloadDirectCloudE2EE(item, dirHandle){
+async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
   if(!S._password) throw new Error('Please sign in again before downloading encrypted cloud files.');
   const info = await api('GET', `/files/direct-upload/${item.id}/download-url`);
   const manifest = info.encryption_manifest || {};
@@ -3552,13 +3560,14 @@ async function _downloadDirectCloudE2EE(item, dirHandle){
       cipherOffset += cipherLen;
       plainDone += plain.byteLength;
       item.progress = plaintextSize ? Math.min(plainDone / plaintextSize, 1) : 1;
-      renderDownloadQ();
+      if(!options.returnBlob) renderDownloadQ();
     }
     if(writable){
       await writable.close();
       return null;
     }
     const blob = new Blob(plaintextParts, {type:info.mime_type || 'application/octet-stream'});
+    if(options.returnBlob) return blob;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -4963,7 +4972,7 @@ function renderCloudFileList(){
       var name = f.name || f.filename || 'Untitled';
       var sel = _cloudSelIds.has(id);
       var mime = f.mime_type || '';
-      var hasThumb = f.has_thumbnail || mime.startsWith('image/') || isImageFile(name);
+      var hasThumb = f.storage_version !== 'client_e2ee_s3' && (f.has_thumbnail || mime.startsWith('image/') || isImageFile(name));
       return '<div class="fade-in" data-file-id="' + id + '"'
         + ' data-click="cloudToggleSel(\'' + id + '\')"'
         + ' ondblclick="event.stopPropagation();openCloudPreview(\'' + id + '\')"'
@@ -5530,7 +5539,11 @@ async function downloadFile(id,name,isNas=false){
   // Pick the save dir FIRST while the click gesture is still active.
   const dirHandle=await _pickSaveDir();
   if(dirHandle===false)return; // user cancelled
-  const srcFile = S.files.find(f => String(f.id) === String(id) && !!f._nas === !!isNas) || {};
+  const srcFile = (
+    S.files.find(f => String(f.id) === String(id) && !!f._nas === !!isNas) ||
+    (!isNas ? _cloudFiles.find(f => String(f.id) === String(id)) : null) ||
+    {}
+  );
   S.downloadQueue=[{id,name,_nas:isNas,storage_version:srcFile.storage_version||'',size:srcFile.size||0,status:'pending',progress:0}];
   showModal('download-modal');renderDownloadQ();
   await runDownloads(dirHandle);
@@ -6349,7 +6362,7 @@ function renderFiles(){
     el.innerHTML=files.map(f=>{
       const sel=S.selectedIds.has(String(f.id));
       const deleting=S.deletingIds.has(f.id);
-      const hasThumb=f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path||(f._nas&&isImageFile(f.name));
+      const hasThumb=f.storage_version !== 'client_e2ee_s3' && (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path||(f._nas&&isImageFile(f.name)));
       const previewDbl = f._nas
         ? ` ondblclick="event.stopPropagation();openNasPreview('${f.id}')"`
         : ` ondblclick="event.stopPropagation();openCloudPreview('${f.id}')"`; 
@@ -6394,7 +6407,7 @@ function renderFiles(){
       ${files.map(f=>{
         const sel=S.selectedIds.has(String(f.id));
         const deleting=S.deletingIds.has(f.id);
-        const hasThumb=f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path||(f._nas&&isImageFile(f.name));
+        const hasThumb=f.storage_version !== 'client_e2ee_s3' && (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path||(f._nas&&isImageFile(f.name)));
         const dateStr=fmtDate(f.captured_at||f.created_at);
         const rowBg=sel?'#e8f0fe':'#fff';
         const rowBorder=sel?'border-bottom:1px solid #c5d8fd;':'border-bottom:1px solid #f1f3f4;';
@@ -8586,7 +8599,7 @@ function dbLoadRecentFiles(){
       var size     = fmtSize(f.size || 0);
       // Use data-thumb-id/data-thumb-nas so applyThumbnails() fetches with auth header
       var isImage  = f.mime_type && f.mime_type.startsWith('image/');
-      var hasThumb = !!f.has_thumbnail || isImage || isImageFile(name);
+      var hasThumb = f.storage_version !== 'client_e2ee_s3' && (!!f.has_thumbnail || isImage || isImageFile(name));
       var thumbId  = null;
       var thumbIsNas = false;
       if(hasThumb){
