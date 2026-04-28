@@ -3555,6 +3555,58 @@ async function _directCloudContentFingerprint(file){
   return _hexBytes(scopedDigest);
 }
 
+function _directCloudShouldCompress(file){
+  if(!file || typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') return false;
+  const name = String(file.name || '').toLowerCase();
+  const mime = String(file.type || '').toLowerCase();
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  const alreadyCompressed = new Set([
+    '7z','avi','avif','br','bz2','cab','dmg','gif','gz','heic','heif','iso','jar','jpeg','jpg','m4a','m4v',
+    'mov','mp3','mp4','mpeg','mpg','ogg','png','rar','webm','webp','wmv','xz','zip','zst'
+  ]);
+  if(alreadyCompressed.has(ext)) return false;
+  if(/^(audio|image|video)\//.test(mime)) return false;
+  if(/(zip|gzip|x-7z|x-rar|x-bzip|x-xz|zstd|pdf)/.test(mime)) return false;
+  if(file.size < 8 * 1024) return false;
+  return /^(text|application\/(json|xml|csv|javascript|typescript|x-ndjson|sql|rtf))/.test(mime)
+    || ['txt','csv','json','xml','html','css','js','ts','md','log','sql','rtf','svg','ini','yaml','yml'].includes(ext);
+}
+
+async function _gzipBlob(blob){
+  const stream = blob.stream().pipeThrough(new CompressionStream('gzip'));
+  return await new Response(stream).blob();
+}
+
+async function _gunzipBlob(blob){
+  if(typeof DecompressionStream === 'undefined') throw new Error('This browser cannot decompress encrypted cloud files. Please use the latest Chrome, Edge, or Firefox.');
+  const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).blob();
+}
+
+async function _prepareDirectCloudPayload(file){
+  const base = {blob:file, compression:null, original_size:file.size, stored_size:file.size};
+  if(!_directCloudShouldCompress(file)) return base;
+  try{
+    const compressed = await _gzipBlob(file);
+    if(compressed && compressed.size > 0 && compressed.size <= Math.floor(file.size * 0.95)){
+      return {
+        blob:compressed,
+        compression:{
+          alg:'gzip',
+          original_size:file.size,
+          stored_size:compressed.size,
+          ratio:Number((compressed.size / Math.max(file.size, 1)).toFixed(4))
+        },
+        original_size:file.size,
+        stored_size:compressed.size
+      };
+    }
+  }catch(e){
+    console.warn('[MPD] Direct cloud compression skipped:', e.message || e);
+  }
+  return base;
+}
+
 function _displayFileSize(file){
   if(_isDirectCloudE2EEFile(file) && file.logical_size_bytes != null){
     return Number(file.logical_size_bytes) || 0;
@@ -3639,15 +3691,17 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
   const rawDek = await crypto.subtle.decrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, wrappedDek);
   const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['decrypt']);
   const partSize = manifest.part_size || (16 * 1024 * 1024);
-  const partCount = manifest.part_count || Math.ceil((info.plaintext_size || item.size || 0) / partSize);
+  const storedPlaintextSize = info.stored_plaintext_size || manifest.stored_plaintext_size || info.plaintext_size || item.size || 0;
+  const partCount = manifest.part_count || Math.ceil(storedPlaintextSize / partSize);
   const ivPrefix = DirectCloudE2EE.b64ToBytes(manifest.part_iv_prefix);
-  const plaintextSize = info.plaintext_size || item.size || 0;
+  const plaintextSize = info.plaintext_size || manifest.plaintext_size || item.size || 0;
+  const compression = manifest.compression || null;
   let cipherOffset = 0;
   let plainDone = 0;
   let writable = null;
   const plaintextParts = [];
 
-  if(dirHandle){
+  if(dirHandle && !(compression && compression.alg === 'gzip')){
     const fileHandle = await dirHandle.getFileHandle(item.name || info.filename || 'download', {create:true});
     writable = await fileHandle.createWritable();
   }
@@ -3656,7 +3710,7 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
     for(let partNumber=1; partNumber<=partCount; partNumber++){
       if(item.status === 'cancelled') throw new Error('Download cancelled');
       const plainStart = (partNumber - 1) * partSize;
-      const plainLen = Math.min(partSize, Math.max(0, plaintextSize - plainStart));
+      const plainLen = Math.min(partSize, Math.max(0, storedPlaintextSize - plainStart));
       const cipherLen = plainLen + 16;
       const res = await fetch(info.download_url, {
         headers:{'Range':`bytes=${cipherOffset}-${cipherOffset + cipherLen - 1}`}
@@ -3668,14 +3722,26 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
       else plaintextParts.push(plain);
       cipherOffset += cipherLen;
       plainDone += plain.byteLength;
-      item.progress = plaintextSize ? Math.min(plainDone / plaintextSize, 1) : 1;
+      item.progress = storedPlaintextSize ? Math.min(plainDone / storedPlaintextSize, 1) : 1;
       if(!options.returnBlob) renderDownloadQ();
     }
     if(writable){
       await writable.close();
       return null;
     }
-    const blob = new Blob(plaintextParts, {type:info.mime_type || 'application/octet-stream'});
+    let blob = new Blob(plaintextParts, {type:info.mime_type || 'application/octet-stream'});
+    if(compression && compression.alg === 'gzip'){
+      blob = await _gunzipBlob(blob);
+      item.progress = 1;
+      if(!options.returnBlob) renderDownloadQ();
+    }
+    if(dirHandle){
+      const fileHandle = await dirHandle.getFileHandle(item.name || info.filename || 'download', {create:true});
+      const out = await fileHandle.createWritable();
+      await out.write(await blob.arrayBuffer());
+      await out.close();
+      return null;
+    }
     if(options.returnBlob) return blob;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -3709,9 +3775,14 @@ async function _uploadDirectCloudE2EE(item, folderId){
   item.status='uploading'; item.progress=0; renderUploadQ();
   console.info('[MPD] Cloud upload via direct encrypted B2/S3 multipart session');
   const file = item.file;
+  item.status='preparing'; item.progress=0; renderUploadQ();
+  const payload = await _prepareDirectCloudPayload(file);
+  if(payload.compression){
+    console.info(`[MPD] Direct cloud compressed before encryption: ${fmtSize(file.size)} -> ${fmtSize(payload.stored_size)} (${Math.round(payload.compression.ratio * 100)}%)`);
+  }
   const partSize = Math.max(cfg.min_part_size || (5*1024*1024), DirectCloudE2EE.partSize);
-  const partCount = Math.max(1, Math.ceil(file.size / partSize));
-  const ciphertextSize = file.size + (partCount * 16); // AES-GCM tag per encrypted part
+  const partCount = Math.max(1, Math.ceil(payload.stored_size / partSize));
+  const ciphertextSize = payload.stored_size + (partCount * 16); // AES-GCM tag per encrypted part
 
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
   const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
@@ -3725,7 +3796,8 @@ async function _uploadDirectCloudE2EE(item, folderId){
     name:file.name,
     mime_type:file.type || 'application/octet-stream',
     size:file.size,
-    last_modified:file.lastModified || null
+    last_modified:file.lastModified || null,
+    compression:payload.compression
   }));
   const metadataCipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:metadataIv}, dek, metadataPlain));
   const thumbResult = await _makeEncryptedDirectThumbnail(file, dek);
@@ -3747,12 +3819,15 @@ async function _uploadDirectCloudE2EE(item, folderId){
     part_size:partSize,
     part_count:partCount,
     plaintext_size:file.size,
+    stored_plaintext_size:payload.stored_size,
     ciphertext_size:ciphertextSize
   };
+  if(payload.compression){
+    encryptionManifest.compression = payload.compression;
+  }
 
   let session;
   try{
-    item.status='preparing'; item.progress=0; renderUploadQ();
     const contentFingerprint = await _directCloudContentFingerprint(file).catch(err => {
       console.warn('[MPD] Direct cloud dedupe fingerprint unavailable; upload will continue without dedupe:', err.message || err);
       return null;
@@ -3763,6 +3838,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
       folder_id:folderId,
       mime_type:file.type || 'application/octet-stream',
       plaintext_size:file.size,
+      stored_plaintext_size:payload.stored_size,
       ciphertext_size:ciphertextSize,
       derived_storage_size:thumbResult.derivedStorageSize || 0,
       part_size:partSize,
@@ -3788,8 +3864,8 @@ async function _uploadDirectCloudE2EE(item, folderId){
 
   async function putPart(partNumber){
     const start = (partNumber - 1) * partSize;
-    const end = Math.min(file.size, start + partSize);
-    const plain = await file.slice(start, end).arrayBuffer();
+    const end = Math.min(payload.stored_size, start + partSize);
+    const plain = await payload.blob.slice(start, end).arrayBuffer();
     const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv:DirectCloudE2EE.partIv(partIvPrefix, partNumber)}, dek, plain);
     const url = urls.get(partNumber);
     if(!url) throw new Error('Missing signed upload URL');
@@ -3850,6 +3926,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
       parts,
       ciphertext_size:ciphertextSize,
+      stored_plaintext_size:payload.stored_size,
       derived_storage_size:thumbResult.derivedStorageSize || 0,
       encrypted_metadata:encryptedMetadata,
       encryption_manifest:encryptionManifest
