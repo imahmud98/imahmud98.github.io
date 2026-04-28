@@ -3607,7 +3607,7 @@ async function _directCloudThumbUrl(fileId){
 
 async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
   if(!S._password) throw new Error('Please sign in again before downloading encrypted cloud files.');
-  const info = await api('GET', `/files/direct-upload/${item.id}/download-url`);
+  const info = options.info || await api('GET', `/files/direct-upload/${item.id}/download-url`);
   const manifest = info.encryption_manifest || {};
   const wrapped = manifest.wrapped_dek || {};
   const salt = DirectCloudE2EE.b64ToBytes(manifest.kdf?.salt);
@@ -6034,6 +6034,18 @@ async function runDownloads(dirHandle){
           item.status='done'; item.progress=1; renderDownloadQ();
           await new Promise(r=>setTimeout(r,300));
           continue;
+        }
+        let directInfo = null;
+        if(!item.storage_version){
+          directInfo = await api('GET', `/files/direct-upload/${item.id}/download-url`).catch(()=>null);
+          if(directInfo && directInfo.storage_version === 'client_e2ee_s3'){
+            item.storage_version = 'client_e2ee_s3';
+            console.info('[MPD] Cloud E2EE download via signed storage URL (detected)');
+            await _downloadDirectCloudE2EE(item, dirHandle, {info:directInfo});
+            item.status='done'; item.progress=1; renderDownloadQ();
+            await new Promise(r=>setTimeout(r,300));
+            continue;
+          }
         }
         _dlUrl = `${API}/files/${item.id}/download`;
         _dlHeaders = {'Authorization':`Bearer ${S.token}`,'ngrok-skip-browser-warning':'true'};
