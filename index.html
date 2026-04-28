@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-  <link rel="icon" type="image/png" href="logo.png" id="favicon-link"/>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230D6D6E'/%3E%3Cpath d='M18 24h28v18H18z' fill='white'/%3E%3Cpath d='M22 19h14l5 5H18c0-3 1-5 4-5z' fill='%235FD896'/%3E%3Ccircle cx='44' cy='42' r='5' fill='%235FD896'/%3E%3C/svg%3E" id="favicon-link"/>
   <title>MyPocketDrive</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -3824,6 +3824,7 @@ const _NAS_RELAY_CHUNK_SIZE      = 8 * 1024 * 1024;   // 8 MB per chunk â€”
 const _NAS_RELAY_PARALLEL        = 1;                  // keep relay sends serial for now â€” safest over one WS tunnel
 const _NAS_SESSION_DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 const _NAS_SESSION_DEFAULT_PARALLEL   = 3;
+const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 2 * 1024 * 1024; // public backend tunnel: smaller WS frames, fewer 503s
 
 function _nasRelayChunkTimeoutMs(byteLength){
   // Scale timeout with chunk size so slower uplinks and low-spec NAS agents do
@@ -3893,9 +3894,15 @@ async function _waitForNasTransferSession(sessionId){
 async function _uploadNasDirectSession(item, session){
   const file = item.file;
   const totalSize = file.size;
-  const chunkSize = Math.max(4 * 1024 * 1024, Number(session.chunk_size || _NAS_SESSION_DEFAULT_CHUNK_SIZE));
+  const publicIngress = session.direct?.access_mode === 'public_ingress_client';
+  const advertisedChunk = Number(session.chunk_size || _NAS_SESSION_DEFAULT_CHUNK_SIZE);
+  const chunkSize = publicIngress
+    ? Math.min(Math.max(512 * 1024, advertisedChunk), _NAS_PUBLIC_INGRESS_CHUNK_SIZE)
+    : Math.max(4 * 1024 * 1024, advertisedChunk);
   const totalChunks = Math.max(1, Math.ceil(totalSize / chunkSize));
-  const parallel = Math.max(1, Math.min(Number(session.max_parallel || _NAS_SESSION_DEFAULT_PARALLEL), totalChunks, 4));
+  const parallel = publicIngress
+    ? 1
+    : Math.max(1, Math.min(Number(session.max_parallel || _NAS_SESSION_DEFAULT_PARALLEL), totalChunks, 4));
   const baseHeaders = Object.assign({}, session.direct?.headers || {});
   const chunkProgress = new Array(totalChunks).fill(0);
   let nextChunk = 0;
@@ -4240,7 +4247,13 @@ async function _uploadNasDirect(item, folderId){
           }
           return true;
         }catch(e){
-          console.warn('[MPD] NAS direct transfer session failed; falling back to legacy NAS relay path:', e.message);
+          if(item.file && item.file.size > _NAS_RELAY_CHUNK_THRESHOLD){
+            item.status='error';
+            item.error = 'Direct NAS transfer failed. Large files are not sent through the backend relay; please retry when the agent tunnel is stable.';
+            renderUploadQ();
+            throw new Error(item.error);
+          }
+          console.warn('[MPD] NAS direct transfer session failed; falling back to legacy NAS relay path for small file:', e.message);
           try{
             if(transferSession.direct && transferSession.direct.abort_url){
               await new Promise(resolve => {
@@ -4285,7 +4298,7 @@ async function _uploadNasDirect(item, folderId){
     const useRelayChunked  = isRelay;
     const useDirectChunked = !isRelay && item.file.size > _NAS_DIRECT_CHUNK_THRESHOLD;
     if(useRelayChunked && isLarge){
-      console.info(`[MPD] Large file (${(item.file.size/1024/1024).toFixed(1)} MB) â€” chunked NAS relay upload`);
+      throw new Error('Large NAS uploads require the direct transfer tunnel. Backend relay is disabled for large files.');
     } else if(useRelayChunked){
       console.info(`[MPD] Small file (${(item.file.size/1024/1024).toFixed(1)} MB) â€” chunked NAS relay upload for tunnel stability`);
     } else if(useDirectChunked){
@@ -5504,6 +5517,9 @@ async function runDownloads(dirHandle){
             ...(_info.headers||{}),
           };
           const _fileSize0 = _info.size || item.size || 0;
+          if(_fileSize0 > _NAS_DL_RELAY_CHUNK_THRESHOLD){
+            throw new Error('Large NAS downloads require the direct transfer tunnel. Backend relay is disabled for large files.');
+          }
           // If the backend didn't return a size, do a cheap HEAD to get Content-Length
           // before deciding single-shot vs chunked. Without this, a missing size silently
           // falls back to single-shot and loads the whole file into RAM.
@@ -6746,6 +6762,7 @@ async function revokeShare(shareId) {
       </div>
       <div id="reset-success" class="hidden text-center py-4"><div class="text-4xl mb-3">âœ…</div><p class="text-sm font-medium text-gray-700">Password reset!</p><button data-click="goTo('login')" class="mt-4 text-sm font-semibold" style="color:var(--p);background:none;border:none;cursor:pointer;">Sign in</button></div>
       <form id="reset-form" onsubmit="handleReset(event)" class="space-y-4">
+        <input type="text" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true"/>
         <div id="reset-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2"></div>
         <div><label class="f-label">New password</label><input id="rp-password" type="password" required minlength="6" autocomplete="new-password" class="f-input"/></div>
         <button id="reset-btn" type="submit" class="btn-primary w-full">Set new password</button>
@@ -7738,6 +7755,7 @@ async function revokeShare(shareId) {
       <div>
         <h3 class="text-sm font-semibold mb-3" style="color:var(--txt)">Change password</h3>
         <form onsubmit="handleChangePw(event)" class="space-y-3">
+          <input type="text" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true"/>
           <div id="cpw-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2"></div>
           <input id="cpw-current" type="password" placeholder="Current password" autocomplete="current-password" class="f-input"/>
           <input id="cpw-new" type="password" placeholder="New password (min 8 chars)" autocomplete="new-password" class="f-input"/>
@@ -8374,9 +8392,10 @@ document.addEventListener('DOMContentLoaded', function(){
             <div class="text-xs" style="color:var(--mute)">Key derived from password â€” fragment shows <code class="font-mono">#pw</code></div>
           </div>
         </label>
-        <div id="share-pw-fields" class="hidden mt-3">
+        <form id="share-pw-fields" class="hidden mt-3" onsubmit="return false">
+          <input type="text" autocomplete="username" class="hidden" tabindex="-1" aria-hidden="true"/>
           <input id="share-password-input" type="password" placeholder="Set share password (min 4 chars)" class="f-input"/>
-        </div>
+        </form>
       </div>
       <!-- Warning -->
       <div class="rounded-xl px-3 py-2.5 text-xs" style="background:#FFFBEB;border:1px solid #FDE68A;color:#92400E">
