@@ -3883,6 +3883,17 @@ function _normalizeNasDirectSession(session){
   return Object.assign({}, session, { direct });
 }
 
+function _isPublicNasTransferUrl(url){
+  try{
+    const host = new URL(url, location.href).hostname.toLowerCase();
+    return host.endsWith('-transfer.mypocketdrive.online') ||
+      host.endsWith('.trycloudflare.com') ||
+      host === 'api.mypocketdrive.online';
+  }catch{
+    return false;
+  }
+}
+
 async function _waitForNasTransferSession(sessionId){
   for(let attempt = 0; attempt < 20; attempt++){
     const status = await api('GET', `/nas/transfer/session/${sessionId}`);
@@ -3895,7 +3906,9 @@ async function _waitForNasTransferSession(sessionId){
 async function _uploadNasDirectSession(item, session){
   const file = item.file;
   const totalSize = file.size;
-  const publicIngress = session.direct?.access_mode === 'public_ingress_client';
+  const directBase = session.direct?.base_url || session.direct?.upload_chunk_url || '';
+  const publicIngress = session.direct?.access_mode === 'public_ingress_client' ||
+    _isPublicNasTransferUrl(directBase);
   const advertisedChunk = Number(session.chunk_size || _NAS_SESSION_DEFAULT_CHUNK_SIZE);
   const chunkSize = publicIngress
     ? Math.min(Math.max(512 * 1024, advertisedChunk), _NAS_PUBLIC_INGRESS_CHUNK_SIZE)
