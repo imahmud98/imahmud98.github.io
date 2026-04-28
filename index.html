@@ -3533,6 +3533,28 @@ function _isDirectCloudE2EEFile(file){
   return file && file.storage_version === 'client_e2ee_s3';
 }
 
+function _hexBytes(bytes){
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function _directCloudContentFingerprint(file){
+  if(!file || !S._password) return null;
+  const enc = new TextEncoder();
+  const userId = S.user?.id || S.user?.user_id || '0';
+  const material = await crypto.subtle.importKey('raw', enc.encode(S._password), 'PBKDF2', false, ['deriveKey']);
+  const hmacKey = await crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt:enc.encode(`mpd-direct-dedupe-v1:user:${userId}`), iterations:300000, hash:'SHA-256'},
+    material,
+    {name:'HMAC', hash:'SHA-256', length:256},
+    false,
+    ['sign']
+  );
+  const fileDigest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  const scopedDigest = await crypto.subtle.sign('HMAC', hmacKey, fileDigest);
+  return _hexBytes(scopedDigest);
+}
+
 function _displayFileSize(file){
   if(_isDirectCloudE2EEFile(file) && file.logical_size_bytes != null){
     return Number(file.logical_size_bytes) || 0;
@@ -3730,6 +3752,12 @@ async function _uploadDirectCloudE2EE(item, folderId){
 
   let session;
   try{
+    item.status='preparing'; item.progress=0; renderUploadQ();
+    const contentFingerprint = await _directCloudContentFingerprint(file).catch(err => {
+      console.warn('[MPD] Direct cloud dedupe fingerprint unavailable; upload will continue without dedupe:', err.message || err);
+      return null;
+    });
+    item.status='uploading'; item.progress=0; renderUploadQ();
     session = await api('POST', '/files/direct-upload/session', {
       filename:file.name,
       folder_id:folderId,
@@ -3739,11 +3767,19 @@ async function _uploadDirectCloudE2EE(item, folderId){
       derived_storage_size:thumbResult.derivedStorageSize || 0,
       part_size:partSize,
       part_count:partCount,
+      content_fingerprint:contentFingerprint,
+      fingerprint_alg:contentFingerprint ? 'hmac-sha256-pbkdf2-user-v1' : null,
       encrypted_metadata:encryptedMetadata,
       encryption_manifest:encryptionManifest
     });
   }catch(e){
     return null;
+  }
+
+  if(session && session.dedupe_hit){
+    console.info('[MPD] Direct cloud same-user dedupe hit; reused encrypted storage object:', session.object_key);
+    item.status='done'; item.progress=1; renderUploadQ();
+    return true;
   }
 
   const urls = new Map((session.part_urls || []).map(p => [Number(p.part_number), p.url]));
