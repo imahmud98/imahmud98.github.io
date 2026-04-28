@@ -3538,6 +3538,14 @@ function _hexBytes(bytes){
   return Array.from(u8).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
+function _concatBytes(...arrays){
+  const parts = arrays.map(a => a instanceof Uint8Array ? a : new Uint8Array(a));
+  const out = new Uint8Array(parts.reduce((n,a)=>n+a.length,0));
+  let off = 0;
+  for(const part of parts){ out.set(part, off); off += part.length; }
+  return out;
+}
+
 async function _directCloudContentFingerprint(file){
   if(!file || !S._password) return null;
   const hmacKey = await _directCloudDedupeHmacKey();
@@ -3559,25 +3567,44 @@ async function _directCloudDedupeHmacKey(){
   );
 }
 
-async function _directCloudBlockManifest(blob, partSize){
-  const hmacKey = await _directCloudDedupeHmacKey();
+async function _sha256Bytes(...parts){
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', _concatBytes(...parts)));
+}
+
+async function _directCloudBlockManifest(blob, partSize, wrapKey){
   const count = Math.max(1, Math.ceil(blob.size / partSize));
   const blocks = [];
+  const local = new Map();
+  const enc = new TextEncoder();
   for(let i=0;i<count;i++){
     const start = i * partSize;
     const end = Math.min(blob.size, start + partSize);
     const plain = await blob.slice(start, end).arrayBuffer();
-    const digest = await crypto.subtle.digest('SHA-256', plain);
-    const scoped = await crypto.subtle.sign('HMAC', hmacKey, digest);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', plain));
+    const blockKeyRaw = await _sha256Bytes(enc.encode('mpd-direct-block-key-v1'), digest);
+    const fingerprintBytes = await _sha256Bytes(enc.encode('mpd-direct-block-fingerprint-v1'), digest);
+    const ivDigest = await _sha256Bytes(enc.encode('mpd-direct-block-iv-v1'), digest);
+    const iv = ivDigest.slice(0, 12);
+    const wrapIv = crypto.getRandomValues(new Uint8Array(12));
+    const wrappedKey = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, blockKeyRaw));
     const storedSize = end - start;
+    const fingerprint = _hexBytes(fingerprintBytes);
     blocks.push({
       sequence:i+1,
-      fingerprint:_hexBytes(scoped),
+      fingerprint,
       stored_plaintext_size:storedSize,
-      ciphertext_size:storedSize + 16
+      ciphertext_size:storedSize + 16,
+      iv:DirectCloudE2EE.b64(iv),
+      wrapped_key:{alg:'AES-256-GCM', iv:DirectCloudE2EE.b64(wrapIv), ciphertext:DirectCloudE2EE.b64(wrappedKey)}
+    });
+    local.set(i+1, {
+      keyRaw:blockKeyRaw,
+      iv,
+      start,
+      end
     });
   }
-  return blocks;
+  return {blocks, local};
 }
 
 function _directCloudShouldCompress(file){
@@ -3753,7 +3780,20 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
         if(!(res.status === 206 || (partCount === 1 && res.ok))) throw new Error(`Encrypted cloud range download failed: ${res.status}`);
       }
       const cipher = await res.arrayBuffer();
-      const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:DirectCloudE2EE.partIv(ivPrefix, partNumber)}, dek, cipher);
+      let decryptKey = dek;
+      let decryptIv = DirectCloudE2EE.partIv(ivPrefix, partNumber);
+      if(blockEntries){
+        const blockMeta = (manifest.blocks || [])[partNumber - 1];
+        if(!blockMeta || !blockMeta.wrapped_key || !blockMeta.iv) throw new Error('Encrypted cloud block metadata is missing');
+        const blockKeyRaw = await crypto.subtle.decrypt(
+          {name:'AES-GCM', iv:DirectCloudE2EE.b64ToBytes(blockMeta.wrapped_key.iv)},
+          wrapKey,
+          DirectCloudE2EE.b64ToBytes(blockMeta.wrapped_key.ciphertext)
+        );
+        decryptKey = await crypto.subtle.importKey('raw', blockKeyRaw, {name:'AES-GCM'}, false, ['decrypt']);
+        decryptIv = DirectCloudE2EE.b64ToBytes(blockMeta.iv);
+      }
+      const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:decryptIv}, decryptKey, cipher);
       if(writable) await writable.write(plain);
       else plaintextParts.push(plain);
       cipherOffset += cipherLen;
@@ -3820,7 +3860,6 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const partCount = Math.max(1, Math.ceil(payload.stored_size / partSize));
   const ciphertextSize = payload.stored_size + (partCount * 16); // AES-GCM tag per encrypted part
   const useBlockDedupe = !!cfg.block_dedupe_enabled;
-  const blockManifest = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize) : null;
 
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
   const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
@@ -3830,6 +3869,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const partIvPrefix = crypto.getRandomValues(new Uint8Array(8));
   const wrapKey = await DirectCloudE2EE.deriveWrapKey(S._password, wrapSalt);
   const wrappedDek = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, rawDek));
+  const blockPlan = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize, wrapKey) : null;
   const metadataPlain = new TextEncoder().encode(JSON.stringify({
     name:file.name,
     mime_type:file.type || 'application/octet-stream',
@@ -3864,6 +3904,16 @@ async function _uploadDirectCloudE2EE(item, folderId){
   if(payload.compression){
     encryptionManifest.compression = payload.compression;
   }
+  let requestBlocks = null;
+  if(blockPlan){
+    encryptionManifest.blocks = blockPlan.blocks;
+    requestBlocks = blockPlan.blocks.map(b => ({
+      sequence:b.sequence,
+      fingerprint:b.fingerprint,
+      stored_plaintext_size:b.stored_plaintext_size,
+      ciphertext_size:b.ciphertext_size
+    }));
+  }
 
   let session;
   try{
@@ -3882,6 +3932,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
       derived_storage_size:thumbResult.derivedStorageSize || 0,
       part_size:partSize,
       part_count:partCount,
+      blocks:requestBlocks,
       content_fingerprint:contentFingerprint,
       fingerprint_alg:contentFingerprint ? 'hmac-sha256-pbkdf2-user-v1' : null,
       encrypted_metadata:encryptedMetadata,
@@ -3912,10 +3963,15 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const etags = new Array(partCount);
 
   async function putPart(partNumber){
-    const start = (partNumber - 1) * partSize;
-    const end = Math.min(payload.stored_size, start + partSize);
+    const localBlock = blockPlan?.local?.get(partNumber);
+    const start = localBlock ? localBlock.start : (partNumber - 1) * partSize;
+    const end = localBlock ? localBlock.end : Math.min(payload.stored_size, start + partSize);
     const plain = await payload.blob.slice(start, end).arrayBuffer();
-    const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv:DirectCloudE2EE.partIv(partIvPrefix, partNumber)}, dek, plain);
+    const cipherKey = localBlock
+      ? await crypto.subtle.importKey('raw', localBlock.keyRaw, {name:'AES-GCM'}, false, ['encrypt'])
+      : dek;
+    const cipherIv = localBlock ? localBlock.iv : DirectCloudE2EE.partIv(partIvPrefix, partNumber);
+    const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv:cipherIv}, cipherKey, plain);
     const url = urls.get(partNumber);
     if(!url && isBlockSession){
       progress[partNumber-1] = 1;
