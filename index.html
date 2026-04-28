@@ -7228,7 +7228,7 @@ async function revokeShare(shareId) {
             <span>Edit profile</span>
           </button>
           <div class="hd-dd-sep"></div>
-          <button class="hd-dd-item danger" role="menuitem" data-click="logout()">
+          <button class="hd-dd-item danger" id="hd-signout-btn" role="menuitem" data-click="logout()">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
               <path d="M10 10.5v2a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.3" fill="none"/>
               <line x1="7" y1="8" x2="14.5" y2="8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -8815,6 +8815,38 @@ function hdCloseDd(name){
 }
 window.hdToggleDd = hdToggleDd;
 window.hdCloseDd = hdCloseDd;
+function hdBindAccountControls(){
+  const settingsBtn=document.getElementById('hd-settings-btn');
+  const avatarBtn=document.getElementById('hd-avatar-btn');
+  const signoutBtn=document.getElementById('hd-signout-btn');
+  if(settingsBtn && !settingsBtn.dataset.directBound){
+    settingsBtn.dataset.directBound='1';
+    settingsBtn.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hdToggleDd('settings',e);
+    },true);
+  }
+  if(avatarBtn && !avatarBtn.dataset.directBound){
+    avatarBtn.dataset.directBound='1';
+    avatarBtn.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hdToggleDd('profile',e);
+    },true);
+  }
+  if(signoutBtn && !signoutBtn.dataset.directBound){
+    signoutBtn.dataset.directBound='1';
+    signoutBtn.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hdCloseDd('profile');
+      logout();
+    },true);
+  }
+}
+hdBindAccountControls();
+document.addEventListener('DOMContentLoaded',hdBindAccountControls);
 // Close all dropdowns on outside click
 document.addEventListener('click', function(){
   document.querySelectorAll('.hd-dropdown.open').forEach(el=>el.classList.remove('open'));
