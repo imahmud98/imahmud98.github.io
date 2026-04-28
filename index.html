@@ -3540,19 +3540,44 @@ function _hexBytes(bytes){
 
 async function _directCloudContentFingerprint(file){
   if(!file || !S._password) return null;
+  const hmacKey = await _directCloudDedupeHmacKey();
+  const fileDigest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  const scopedDigest = await crypto.subtle.sign('HMAC', hmacKey, fileDigest);
+  return _hexBytes(scopedDigest);
+}
+
+async function _directCloudDedupeHmacKey(){
   const enc = new TextEncoder();
   const userId = S.user?.id || S.user?.user_id || '0';
   const material = await crypto.subtle.importKey('raw', enc.encode(S._password), 'PBKDF2', false, ['deriveKey']);
-  const hmacKey = await crypto.subtle.deriveKey(
+  return await crypto.subtle.deriveKey(
     {name:'PBKDF2', salt:enc.encode(`mpd-direct-dedupe-v1:user:${userId}`), iterations:300000, hash:'SHA-256'},
     material,
     {name:'HMAC', hash:'SHA-256', length:256},
     false,
     ['sign']
   );
-  const fileDigest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-  const scopedDigest = await crypto.subtle.sign('HMAC', hmacKey, fileDigest);
-  return _hexBytes(scopedDigest);
+}
+
+async function _directCloudBlockManifest(blob, partSize){
+  const hmacKey = await _directCloudDedupeHmacKey();
+  const count = Math.max(1, Math.ceil(blob.size / partSize));
+  const blocks = [];
+  for(let i=0;i<count;i++){
+    const start = i * partSize;
+    const end = Math.min(blob.size, start + partSize);
+    const plain = await blob.slice(start, end).arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', plain);
+    const scoped = await crypto.subtle.sign('HMAC', hmacKey, digest);
+    const storedSize = end - start;
+    blocks.push({
+      sequence:i+1,
+      fingerprint:_hexBytes(scoped),
+      stored_plaintext_size:storedSize,
+      ciphertext_size:storedSize + 16
+    });
+  }
+  return blocks;
 }
 
 function _directCloudShouldCompress(file){
@@ -3707,15 +3732,26 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
   }
 
   try{
+    const blockEntries = Array.isArray(info.blocks) ? info.blocks : null;
     for(let partNumber=1; partNumber<=partCount; partNumber++){
       if(item.status === 'cancelled') throw new Error('Download cancelled');
-      const plainStart = (partNumber - 1) * partSize;
-      const plainLen = Math.min(partSize, Math.max(0, storedPlaintextSize - plainStart));
-      const cipherLen = plainLen + 16;
-      const res = await fetch(info.download_url, {
-        headers:{'Range':`bytes=${cipherOffset}-${cipherOffset + cipherLen - 1}`}
-      });
-      if(!(res.status === 206 || (partCount === 1 && res.ok))) throw new Error(`Encrypted cloud range download failed: ${res.status}`);
+      let cipherLen;
+      let res;
+      if(blockEntries){
+        const block = blockEntries[partNumber - 1];
+        if(!block || !block.download_url) throw new Error('Encrypted cloud block download URL is missing');
+        cipherLen = Number(block.ciphertext_size || 0);
+        res = await fetch(block.download_url);
+        if(!res.ok) throw new Error(`Encrypted cloud block download failed: ${res.status}`);
+      }else{
+        const plainStart = (partNumber - 1) * partSize;
+        const plainLen = Math.min(partSize, Math.max(0, storedPlaintextSize - plainStart));
+        cipherLen = plainLen + 16;
+        res = await fetch(info.download_url, {
+          headers:{'Range':`bytes=${cipherOffset}-${cipherOffset + cipherLen - 1}`}
+        });
+        if(!(res.status === 206 || (partCount === 1 && res.ok))) throw new Error(`Encrypted cloud range download failed: ${res.status}`);
+      }
       const cipher = await res.arrayBuffer();
       const plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:DirectCloudE2EE.partIv(ivPrefix, partNumber)}, dek, cipher);
       if(writable) await writable.write(plain);
@@ -3783,6 +3819,8 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const partSize = Math.max(cfg.min_part_size || (5*1024*1024), DirectCloudE2EE.partSize);
   const partCount = Math.max(1, Math.ceil(payload.stored_size / partSize));
   const ciphertextSize = payload.stored_size + (partCount * 16); // AES-GCM tag per encrypted part
+  const useBlockDedupe = !!cfg.block_dedupe_enabled;
+  const blockManifest = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize) : null;
 
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
   const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
@@ -3812,6 +3850,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const encryptionManifest = {
     version:1,
     mode:'client_e2ee_s3',
+    object_layout:useBlockDedupe ? 'blocks' : 'single',
     content_alg:'AES-256-GCM-per-part',
     kdf:{name:'PBKDF2-SHA256', iterations:600000, salt:DirectCloudE2EE.b64(wrapSalt)},
     wrapped_dek:{alg:'AES-256-GCM', iv:DirectCloudE2EE.b64(wrapIv), ciphertext:DirectCloudE2EE.b64(wrappedDek)},
@@ -3858,8 +3897,18 @@ async function _uploadDirectCloudE2EE(item, folderId){
     return true;
   }
 
-  const urls = new Map((session.part_urls || []).map(p => [Number(p.part_number), p.url]));
-  const progress = new Array(partCount).fill(0);
+  const isBlockSession = session.object_layout === 'blocks';
+  const urls = new Map(
+    isBlockSession
+      ? (session.block_urls || []).map(p => [Number(p.sequence), p.url])
+      : (session.part_urls || []).map(p => [Number(p.part_number), p.url])
+  );
+  const progress = new Array(partCount).fill(isBlockSession ? 1 : 0);
+  if(isBlockSession){
+    for(const p of (session.block_urls || [])) progress[Number(p.sequence)-1] = 0;
+    item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
+    renderUploadQ();
+  }
   const etags = new Array(partCount);
 
   async function putPart(partNumber){
@@ -3868,6 +3917,10 @@ async function _uploadDirectCloudE2EE(item, folderId){
     const plain = await payload.blob.slice(start, end).arrayBuffer();
     const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv:DirectCloudE2EE.partIv(partIvPrefix, partNumber)}, dek, plain);
     const url = urls.get(partNumber);
+    if(!url && isBlockSession){
+      progress[partNumber-1] = 1;
+      return true;
+    }
     if(!url) throw new Error('Missing signed upload URL');
     let attempt = 0;
     while(true){
@@ -3922,7 +3975,9 @@ async function _uploadDirectCloudE2EE(item, folderId){
     }
     const parallel = Math.min(session.max_parallel || 4, partCount);
     await Promise.all(Array.from({length:parallel}, worker));
-    const parts = etags.map((etag, idx) => ({part_number:idx+1, etag}));
+    const parts = etags
+      .map((etag, idx) => ({part_number:idx+1, sequence:idx+1, etag}))
+      .filter(part => !isBlockSession || urls.has(part.sequence));
     await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
       parts,
       ciphertext_size:ciphertextSize,
