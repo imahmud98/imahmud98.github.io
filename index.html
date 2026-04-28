@@ -8307,8 +8307,7 @@ function dbLoadRecentFiles(){
       var size     = fmtSize(f.size || 0);
       // Use data-thumb-id/data-thumb-nas so applyThumbnails() fetches with auth header
       var isImage  = f.mime_type && f.mime_type.startsWith('image/');
-      var isVideo  = f.mime_type && f.mime_type.startsWith('video/');
-      var hasThumb = isImage || isVideo || isImageFile(name);
+      var hasThumb = !!f.has_thumbnail || isImage || isImageFile(name);
       var thumbId  = null;
       var thumbIsNas = false;
       if(hasThumb){
