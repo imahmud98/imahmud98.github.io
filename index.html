@@ -3961,15 +3961,19 @@ async function _makeImageThumbnailBlob(file, maxPx=180, quality=0.62){
   }
 }
 
-async function _makeEncryptedDirectThumbnail(file, dek){
-  if(file && Number(file.size || 0) < 64 * 1024) return {metadata:null, derivedStorageSize:0};
+async function _makeEncryptedDirectThumbnail(file, dek, cfg={}){
+  const policy = cfg.thumbnail_policy || {};
+  const minSourceBytes = Number(policy.min_source_bytes || (256 * 1024));
+  const maxCiphertextBytes = Number(policy.max_ciphertext_bytes || (40 * 1024));
+  const maxSourceRatio = Number(policy.max_source_ratio || 0.10);
+  if(file && Number(file.size || 0) < minSourceBytes) return {metadata:null, derivedStorageSize:0};
   const thumb = await _makeImageThumbnailBlob(file).catch(()=>null);
   if(!thumb) return {metadata:null, derivedStorageSize:0};
   const plain = await thumb.blob.arrayBuffer();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv}, dek, plain));
-  if(cipher.byteLength > 40 * 1024) return {metadata:null, derivedStorageSize:0};
-  if(file && cipher.byteLength > Math.max(4096, Math.floor(Number(file.size || 0) * 0.1))) return {metadata:null, derivedStorageSize:0};
+  if(cipher.byteLength > maxCiphertextBytes) return {metadata:null, derivedStorageSize:0};
+  if(file && cipher.byteLength > Math.max(4096, Math.floor(Number(file.size || 0) * maxSourceRatio))) return {metadata:null, derivedStorageSize:0};
   return {
     metadata:{
       alg:'AES-256-GCM',
@@ -4004,7 +4008,7 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
     delta_base_file_id:deltaPlan.base.id
   }));
   const metadataCipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:metadataIv}, dek, metadataPlain));
-  const thumbResult = await _makeEncryptedDirectThumbnail(file, dek);
+  const thumbResult = await _makeEncryptedDirectThumbnail(file, dek, cfg);
   const encryptedMetadata = {
     alg:'AES-256-GCM',
     iv:DirectCloudE2EE.b64(metadataIv),
@@ -4320,7 +4324,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     compression:payload.compression
   }));
   const metadataCipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:metadataIv}, dek, metadataPlain));
-  const thumbResult = await _makeEncryptedDirectThumbnail(file, dek);
+  const thumbResult = await _makeEncryptedDirectThumbnail(file, dek, cfg);
   const encryptedMetadata = {
     alg:'AES-256-GCM',
     iv:DirectCloudE2EE.b64(metadataIv),
