@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -2323,21 +2323,9 @@ function updateStorageUI(usedBytes, quotaBytes, tier){
   const pct = quotaBytes > 0 ? Math.min(100, (usedBytes/quotaBytes)*100) : 0;
   const remaining = Math.max(0, quotaBytes - usedBytes);
 
-  function fmtB(b){
-    if(b<1024)return b.toFixed(0)+' B';
-    if(b<1048576)return(b/1024).toFixed(1)+' KB';
-    if(b<1073741824)return(b/1048576).toFixed(1)+' MB';
-    return(b/1073741824).toFixed(2)+' GB';
-  }
-  function fmtBig(b){
-    if(b>=1099511627776)return(b/1099511627776).toFixed(2)+' TB';
-    if(b>=1073741824)return(b/1073741824).toFixed(2)+' GB';
-    return fmtB(b);
-  }
-
-  const usedH  = fmtB(usedBytes);
-  const quotaH = fmtBig(quotaBytes);
-  const remH   = fmtBig(remaining);
+  const usedH  = fmtStorageSize(usedBytes);
+  const quotaH = fmtStorageSize(quotaBytes);
+  const remH   = fmtStorageSize(remaining);
   const pctRnd = Math.round(pct);
 
   // Desktop sidebar
@@ -2627,11 +2615,11 @@ async function _loadUserSubscriptions(){
             </div>
             <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:${tier==='free'?'#F3F4F6':tier==='premium'?'#F5F3FF':'var(--pl)'};color:${tier==='free'?'var(--sub)':tier==='premium'?'#6D28D9':'var(--p)'};border:1px solid ${tier==='free'?'var(--bdr)':tier==='premium'?'#A78BFA':'var(--plm)'}">${esc(tierLabel)}</span>
           </div>
-          <div style="font-size:12.5px;color:var(--sub);margin-bottom:6px">${fmtSize(used)} used of ${fmtSize(quota)}</div>
+          <div style="font-size:12.5px;color:var(--sub);margin-bottom:6px">${fmtStorageSize(used)} used of ${fmtStorageSize(quota)}</div>
           <div style="height:6px;background:#E5E7EB;border-radius:99px;overflow:hidden">
             <div style="height:100%;border-radius:99px;background:${barColor};width:${pct}%;transition:width .3s"></div>
           </div>
-          <div style="font-size:11px;color:var(--mute);margin-top:4px">${pct}% used Â· ${fmtSize(Math.max(0,quota-used))} free</div>
+          <div style="font-size:11px;color:var(--mute);margin-top:4px">${pct}% used Â· ${fmtStorageSize(Math.max(0,quota-used))} free</div>
           ${expiresEl}
         </div>`;
       }
@@ -6880,6 +6868,14 @@ function confirmNo(){document.getElementById('delete-confirm').classList.add('hi
 // HELPERS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';if(b<1073741824)return(b/1048576).toFixed(1)+' MB';return(b/1073741824).toFixed(2)+' GB';}
+function fmtStorageSize(b){
+  b = Number(b || 0);
+  if(b < 1000) return b.toFixed(0) + ' B';
+  if(b < 1000000) return (b / 1000).toFixed(1) + ' KB';
+  if(b < 1000000000) return (b / 1000000).toFixed(1) + ' MB';
+  if(b < 1000000000000) return (b / 1000000000).toFixed(2) + ' GB';
+  return (b / 1000000000000).toFixed(2) + ' TB';
+}
 function fmtDate(iso){if(!iso)return'';const d=new Date(iso);return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});}
 function fileIcon(n){const e=(n||'').split('.').pop().toLowerCase();const m={pdf:'📄',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',svg:'🖼️',heic:'🖼️',heif:'🖼️',mp4:'🎬',mov:'🎬',avi:'🎬',mkv:'🎬',webm:'🎬',mp3:'🎵',wav:'🎵',flac:'🎵',zip:'🗜️',rar:'🗜️','7z':'🗜️',tar:'🗜️',gz:'🗜️',doc:'📝',docx:'📝',txt:'📝',md:'📝',xls:'📊',xlsx:'📊',csv:'📊',ppt:'📊',pptx:'📊',js:'💻',ts:'💻',py:'💻',html:'💻',css:'💻',json:'💻'};return m[e]||'📁';}
 function isImageFile(n){return/\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(n||'');}
@@ -9234,7 +9230,7 @@ function dbUpdateDevicePanel(){
       var tierBorder= tier === 'premium' ? '#A78BFA' : tier === 'trial' ? 'var(--plm)' : 'var(--bdr)';
 
       if(cloudStor){
-        cloudStor.innerHTML = 'Available: <strong>' + fmtSize(Math.max(0,quota-used)) + '</strong> / ' + fmtSize(quota)
+        cloudStor.innerHTML = 'Available: <strong>' + fmtStorageSize(Math.max(0,quota-used)) + '</strong> / ' + fmtStorageSize(quota)
           + ' &nbsp;<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:' + tierBg + ';color:' + tierColor + ';border:1px solid ' + tierBorder + '">'
           + (tier === 'premium' ? 'â­ ' : '') + tierLabel + '</span>';
       }
