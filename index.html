@@ -3558,6 +3558,36 @@ async function _sha256HexArrayBuffer(buffer){
   return _hexBytes(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)));
 }
 
+async function _sha256HexBlob(blob){
+  return _sha256HexArrayBuffer(await blob.arrayBuffer());
+}
+
+async function _verifyDirectCloudRoundTrip(item, uploadedFile, completeResult){
+  try{
+    if(!uploadedFile || uploadedFile.size > 128 * 1024 * 1024) return true;
+    const fileId = completeResult?.file?.id || completeResult?.id;
+    if(!fileId) return true;
+    const originalHash = await _sha256HexBlob(uploadedFile);
+    const info = await api('GET', `/files/direct-upload/${fileId}/download-url`);
+    const downloaded = await _downloadDirectCloudE2EE(
+      {id:fileId, name:uploadedFile.name, status:'verifying', progress:0},
+      null,
+      {returnBlob:true, info}
+    );
+    const downloadedHash = await _sha256HexBlob(downloaded);
+    if(downloadedHash !== originalHash){
+      throw new Error(`Round-trip SHA-256 mismatch for ${uploadedFile.name}`);
+    }
+    console.info(`[MPD] Direct cloud round-trip verified: ${uploadedFile.name} sha256=${originalHash}`);
+    return true;
+  }catch(err){
+    item.status = 'error';
+    item.error = 'Upload verification failed: ' + (err.message || err);
+    renderUploadQ();
+    throw err;
+  }
+}
+
 function _bytesToB64(bytes){
   return DirectCloudE2EE.b64(bytes);
 }
@@ -4002,7 +4032,7 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
     xhr.ontimeout = () => reject(new Error('Storage delta upload timed out'));
     xhr.send(new Blob([patchCipher], {type:'application/octet-stream'}));
   });
-  await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
+  const completeResult = await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
     parts:[{part_number:1, sequence:1, etag}],
     ciphertext_size:patchCipher.byteLength,
     stored_plaintext_size:deltaPlan.patchBytes.byteLength,
@@ -4010,6 +4040,8 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
     encrypted_metadata:encryptedMetadata,
     encryption_manifest:encryptionManifest
   });
+  item.status='verifying'; item.progress=1; renderUploadQ();
+  await _verifyDirectCloudRoundTrip(item, file, completeResult);
   item.status='done'; item.progress=1; renderUploadQ();
   return true;
 }
@@ -4397,7 +4429,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     const parts = etags
       .map((etag, idx) => ({part_number:idx+1, sequence:idx+1, etag}))
       .filter(part => !isBlockSession || urls.has(part.sequence));
-    await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
+    const completeResult = await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
       parts,
       ciphertext_size:ciphertextSize,
       stored_plaintext_size:payload.stored_size,
@@ -4405,6 +4437,8 @@ async function _uploadDirectCloudE2EE(item, folderId){
       encrypted_metadata:encryptedMetadata,
       encryption_manifest:encryptionManifest
     });
+    item.status='verifying'; item.progress=1; renderUploadQ();
+    await _verifyDirectCloudRoundTrip(item, file, completeResult);
     item.status='done'; item.progress=1; renderUploadQ();
     return true;
   }catch(e){
