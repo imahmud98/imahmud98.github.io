@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -4068,7 +4068,10 @@ async function _directCloudThumbUrl(fileId){
 }
 
 async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
-  if(!S._password) throw new Error('Please sign in again before downloading encrypted cloud files.');
+  if(!S._password){
+    const unlocked = await ensureEncryptionUnlocked('download encrypted cloud files');
+    if(!unlocked) throw new Error('Encrypted files are locked.');
+  }
   const info = options.info || await api('GET', `/files/direct-upload/${item.id}/download-url`);
   const manifest = info.encryption_manifest || {};
   const wrapped = manifest.wrapped_dek || {};
@@ -4214,11 +4217,16 @@ async function _uploadDirectCloudE2EE(item, folderId){
     return null;
   }
   if(!S._password){
-    item.status='error';
-    item.error='Direct encrypted cloud upload needs a fresh login. Please sign out and sign in again before uploading to cloud.';
+    item.status='waiting';
+    item.error='Unlock encrypted cloud upload to continue.';
     renderUploadQ();
-    console.warn('[MPD] Direct encrypted cloud upload blocked because password is not available in this browser session');
-    return false;
+    const unlocked = await ensureEncryptionUnlocked('upload encrypted cloud files');
+    if(!unlocked){
+      item.status='error';
+      item.error='Encrypted upload was not unlocked.';
+      renderUploadQ();
+      return false;
+    }
   }
 
   item.status='uploading'; item.progress=0; renderUploadQ();
@@ -6930,6 +6938,57 @@ function showView(name){document.querySelectorAll('.view').forEach(el=>el.classL
 function showModal(id){document.getElementById(id).classList.remove('hidden');}
 function hideModal(id){document.getElementById(id).classList.add('hidden');}
 
+let _encryptionUnlockPromise = null;
+let _encryptionUnlockResolve = null;
+function _setUnlockError(msg){
+  const el=document.getElementById('unlock-encryption-err');
+  if(!el)return;
+  if(msg){el.textContent=msg;el.classList.remove('hidden');}
+  else{el.textContent='';el.classList.add('hidden');}
+}
+async function ensureEncryptionUnlocked(reason='use encrypted cloud files'){
+  if(S._password)return true;
+  if(_encryptionUnlockPromise)return _encryptionUnlockPromise;
+  _encryptionUnlockPromise=new Promise(resolve=>{_encryptionUnlockResolve=resolve;});
+  const hint=document.getElementById('unlock-encryption-hint');
+  const input=document.getElementById('unlock-encryption-password');
+  if(hint)hint.textContent=`Enter your password once to ${reason}. You stay signed in.`;
+  _setUnlockError('');
+  showModal('unlock-encryption-modal');
+  setTimeout(()=>input?.focus(),50);
+  const ok=await _encryptionUnlockPromise;
+  _encryptionUnlockPromise=null;
+  _encryptionUnlockResolve=null;
+  return ok;
+}
+function cancelEncryptionUnlock(){
+  hideModal('unlock-encryption-modal');
+  const input=document.getElementById('unlock-encryption-password');
+  if(input)input.value='';
+  if(_encryptionUnlockResolve)_encryptionUnlockResolve(false);
+}
+async function handleEncryptionUnlock(e){
+  e.preventDefault();
+  const input=document.getElementById('unlock-encryption-password');
+  const btn=document.getElementById('unlock-encryption-btn');
+  const password=(input?.value||'').trim();
+  if(!password){_setUnlockError('Enter your password to unlock encrypted files.');return;}
+  if(btn){btn.disabled=true;btn.textContent='Unlocking...';}
+  _setUnlockError('');
+  try{
+    await api('POST','/auth/unlock-encryption',{password});
+    S._password=password;
+    if(input)input.value='';
+    hideModal('unlock-encryption-modal');
+    toast('Encrypted files unlocked','success');
+    if(_encryptionUnlockResolve)_encryptionUnlockResolve(true);
+  }catch(err){
+    _setUnlockError(err.message||'Password is incorrect');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Unlock';}
+  }
+}
+
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // RENDERS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -8814,6 +8873,29 @@ async function revokeShare(shareId) {
     <div class="px-5 pb-5 flex justify-end">
       <button data-click="hideModal('settings-modal')" class="btn-secondary">Close</button>
     </div>
+  </div>
+</div>
+
+<div id="unlock-encryption-modal" class="modal-wrap hidden">
+  <div class="modal-box" style="max-width:380px">
+    <div class="modal-hd">
+      <span class="modal-title">Unlock encrypted files</span>
+      <button class="modal-close" data-click="cancelEncryptionUnlock()">x</button>
+    </div>
+    <form onsubmit="handleEncryptionUnlock(event)" class="px-5 py-5 space-y-4">
+      <p id="unlock-encryption-hint" class="text-sm" style="color:var(--mute)">
+        Enter your password once to use encrypted cloud files. You stay signed in.
+      </p>
+      <div>
+        <label class="f-label">Password</label>
+        <input id="unlock-encryption-password" type="password" autocomplete="current-password" class="f-input"/>
+      </div>
+      <div id="unlock-encryption-err" class="hidden text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"></div>
+      <div class="flex gap-2 justify-end">
+        <button type="button" data-click="cancelEncryptionUnlock()" class="btn-secondary">Cancel</button>
+        <button id="unlock-encryption-btn" type="submit" class="btn-primary">Unlock</button>
+      </div>
+    </form>
   </div>
 </div>
 
