@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -3571,14 +3571,86 @@ async function _sha256Bytes(...parts){
   return new Uint8Array(await crypto.subtle.digest('SHA-256', _concatBytes(...parts)));
 }
 
+function _directCloudShouldUseCDC(blob){
+  const size = Number(blob?.size || 0);
+  if(size <= 0) return false;
+  const mem = Number(navigator.deviceMemory || 0);
+  const cores = Number(navigator.hardwareConcurrency || 0);
+  const lowSpec = (mem && mem <= 2) || (cores && cores <= 2);
+  if(lowSpec && size > 128 * 1024 * 1024) return false;
+  if(size > 1024 * 1024 * 1024) return false;
+  return true;
+}
+
+function _directCloudGearTable(){
+  if(_directCloudGearTable._table) return _directCloudGearTable._table;
+  let x = 0x9e3779b9 >>> 0;
+  const table = new Uint32Array(256);
+  for(let i=0;i<256;i++){
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17; x >>>= 0;
+    x ^= x << 5; x >>>= 0;
+    table[i] = x >>> 0;
+  }
+  _directCloudGearTable._table = table;
+  return table;
+}
+
+async function _directCloudCDCBlocks(blob, partSize){
+  const size = Number(blob?.size || 0);
+  if(size <= 0) return [{start:0, end:0}];
+  if(!_directCloudShouldUseCDC(blob)){
+    const fixed = [];
+    for(let start=0; start<size; start+=partSize) fixed.push({start, end:Math.min(size, start + partSize)});
+    return fixed;
+  }
+
+  const minSize = Math.max(2 * 1024 * 1024, Math.min(4 * 1024 * 1024, Math.floor(partSize / 8)));
+  const avgSize = Math.max(4 * 1024 * 1024, Math.min(8 * 1024 * 1024, Math.floor(partSize / 4)));
+  const maxSize = Math.max(avgSize * 2, Math.min(partSize, 16 * 1024 * 1024));
+  const maskBits = Math.max(20, Math.min(24, Math.round(Math.log2(avgSize))));
+  const mask = (1 << maskBits) - 1;
+  const gear = _directCloudGearTable();
+  const scanChunk = 4 * 1024 * 1024;
+  const blocks = [];
+  let rolling = 0 >>> 0;
+  let cutStart = 0;
+  let position = 0;
+  const startedAt = performance.now();
+
+  while(position < size){
+    const end = Math.min(size, position + scanChunk);
+    const bytes = new Uint8Array(await blob.slice(position, end).arrayBuffer());
+    for(let i=0;i<bytes.length;i++){
+      const absolute = position + i + 1;
+      rolling = (((rolling << 1) >>> 0) + gear[bytes[i]]) >>> 0;
+      const currentSize = absolute - cutStart;
+      const boundary = currentSize >= minSize && ((rolling & mask) === 0);
+      if(boundary || currentSize >= maxSize){
+        blocks.push({start:cutStart, end:absolute});
+        cutStart = absolute;
+        rolling = 0 >>> 0;
+      }
+    }
+    position = end;
+    if(performance.now() - startedAt > 9000 && blocks.length === 0 && size > 256 * 1024 * 1024){
+      const fixed = [];
+      for(let start=0; start<size; start+=partSize) fixed.push({start, end:Math.min(size, start + partSize)});
+      console.info('[MPD] Direct cloud CDC skipped for this device; using fixed encrypted blocks');
+      return fixed;
+    }
+  }
+  if(cutStart < size || blocks.length === 0) blocks.push({start:cutStart, end:size});
+  return blocks;
+}
+
 async function _directCloudBlockManifest(blob, partSize, wrapKey){
-  const count = Math.max(1, Math.ceil(blob.size / partSize));
+  const ranges = await _directCloudCDCBlocks(blob, partSize);
   const blocks = [];
   const local = new Map();
   const enc = new TextEncoder();
-  for(let i=0;i<count;i++){
-    const start = i * partSize;
-    const end = Math.min(blob.size, start + partSize);
+  for(let i=0;i<ranges.length;i++){
+    const {start, end} = ranges[i];
     const plain = await blob.slice(start, end).arrayBuffer();
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', plain));
     const blockKeyRaw = await _sha256Bytes(enc.encode('mpd-direct-block-key-v1'), digest);
@@ -3604,7 +3676,7 @@ async function _directCloudBlockManifest(blob, partSize, wrapKey){
       end
     });
   }
-  return {blocks, local};
+  return {blocks, local, chunking:ranges.length > 1 ? 'content-defined-v1' : 'single-block'};
 }
 
 function _directCloudShouldCompress(file){
@@ -3857,8 +3929,6 @@ async function _uploadDirectCloudE2EE(item, folderId){
     console.info(`[MPD] Direct cloud compressed before encryption: ${fmtSize(file.size)} -> ${fmtSize(payload.stored_size)} (${Math.round(payload.compression.ratio * 100)}%)`);
   }
   const partSize = Math.max(cfg.min_part_size || (5*1024*1024), DirectCloudE2EE.partSize);
-  const partCount = Math.max(1, Math.ceil(payload.stored_size / partSize));
-  const ciphertextSize = payload.stored_size + (partCount * 16); // AES-GCM tag per encrypted part
   const useBlockDedupe = !!cfg.block_dedupe_enabled;
 
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
@@ -3870,6 +3940,10 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const wrapKey = await DirectCloudE2EE.deriveWrapKey(S._password, wrapSalt);
   const wrappedDek = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, rawDek));
   const blockPlan = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize, wrapKey) : null;
+  const partCount = blockPlan ? blockPlan.blocks.length : Math.max(1, Math.ceil(payload.stored_size / partSize));
+  const ciphertextSize = blockPlan
+    ? blockPlan.blocks.reduce((sum, block)=>sum + Number(block.ciphertext_size || 0), 0)
+    : payload.stored_size + (partCount * 16); // AES-GCM tag per encrypted part
   const metadataPlain = new TextEncoder().encode(JSON.stringify({
     name:file.name,
     mime_type:file.type || 'application/octet-stream',
@@ -3901,6 +3975,14 @@ async function _uploadDirectCloudE2EE(item, folderId){
     stored_plaintext_size:payload.stored_size,
     ciphertext_size:ciphertextSize
   };
+  if(blockPlan?.chunking){
+    encryptionManifest.chunking = {
+      alg:blockPlan.chunking,
+      min_size:2 * 1024 * 1024,
+      avg_size:8 * 1024 * 1024,
+      max_size:16 * 1024 * 1024
+    };
+  }
   if(payload.compression){
     encryptionManifest.compression = payload.compression;
   }
