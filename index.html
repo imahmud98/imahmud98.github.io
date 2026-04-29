@@ -3594,8 +3594,30 @@ function _bytesToB64(bytes){
   return DirectCloudE2EE.b64(bytes);
 }
 
+function _directCloudExt(name){
+  const s = String(name || '').toLowerCase();
+  const i = s.lastIndexOf('.');
+  return i >= 0 ? s.slice(i + 1) : '';
+}
+
+function _directCloudIsMediaOrPacked(fileOrName, mimeOverride){
+  const name = typeof fileOrName === 'string' ? fileOrName : (fileOrName?.name || '');
+  const mime = String(mimeOverride || fileOrName?.type || '').toLowerCase();
+  const ext = _directCloudExt(name);
+  const packed = new Set(['7z','avif','br','bz2','cab','dmg','gif','gz','heic','heif','iso','jar','jpeg','jpg','m4a','m4v','mov','mp3','mp4','mpeg','mpg','ogg','png','rar','webm','webp','wmv','xz','zip','zst']);
+  return /^(audio|image|video)\//.test(mime) || packed.has(ext) || /(zip|gzip|x-7z|x-rar|x-bzip|x-xz|zstd)/.test(mime);
+}
+
+function _directCloudDeltaBlockSize(file){
+  const size = Number(file?.size || 0);
+  const ext = _directCloudExt(file?.name);
+  if(size <= 4 * 1024 * 1024 || ['txt','csv','json','xml','html','css','js','ts','md','log','sql','svg','ini','yaml','yml'].includes(ext)) return 32 * 1024;
+  if(size <= 16 * 1024 * 1024) return 64 * 1024;
+  return 128 * 1024;
+}
+
 async function _makeJsonBlockDelta(baseBlob, targetBlob){
-  const blockSize = 64 * 1024;
+  const blockSize = _directCloudDeltaBlockSize(targetBlob);
   const baseBuf = await baseBlob.arrayBuffer();
   const targetBuf = await targetBlob.arrayBuffer();
   const base = new Uint8Array(baseBuf);
@@ -3691,14 +3713,14 @@ function _directCloudShouldTryDelta(file, cfg){
   if((mem && mem <= 2 && file.size > 16 * 1024 * 1024) || (cores && cores <= 2 && file.size > 16 * 1024 * 1024)) return false;
   const name = String(file.name || '').toLowerCase();
   const mime = String(file.type || '').toLowerCase();
-  if(/^(audio|image|video)\//.test(mime)) return false;
-  if(/\.(mp4|mov|mkv|avi|jpg|jpeg|png|webp|heic|zip|rar|7z|gz|xz|zst|iso)$/i.test(name)) return false;
+  if(_directCloudIsMediaOrPacked(file)) return false;
+  if(/\.(mkv|avi)$/i.test(name)) return false;
   return true;
 }
 
 async function _prepareDirectCloudDelta(file, folderId, cfg){
   if(!_directCloudShouldTryDelta(file, cfg)) return null;
-  const qs = new URLSearchParams({filename:file.name, size:String(file.size)});
+  const qs = new URLSearchParams({filename:file.name, size:String(file.size), mime_type:file.type || 'application/octet-stream'});
   if(folderId != null) qs.set('folder_id', folderId);
   const candidateResp = await api('GET', `/files/direct-upload/delta-candidate?${qs.toString()}`).catch(()=>null);
   const candidate = candidateResp?.candidate;
@@ -3711,7 +3733,8 @@ async function _prepareDirectCloudDelta(file, folderId, cfg){
     {returnBlob:true, info:baseInfo}
   );
   const delta = await _makeJsonBlockDelta(baseBlob, file);
-  const maxDelta = Math.min(Math.floor(file.size * 0.7), file.size - 64 * 1024);
+  const minSaved = Math.max(256 * 1024, Math.floor(file.size * 0.25));
+  const maxDelta = Math.min(Math.floor(file.size * 0.6), file.size - minSaved);
   if(delta.patchBytes.byteLength <= 0 || delta.patchBytes.byteLength >= maxDelta) return null;
   console.info(`[MPD] Direct cloud client delta selected: ${fmtSize(file.size)} -> ${fmtSize(delta.patchBytes.byteLength)} against file #${candidate.id}`);
   return {base:candidate, baseInfo, ...delta};
@@ -3734,12 +3757,38 @@ async function _sha256Bytes(...parts){
   return new Uint8Array(await crypto.subtle.digest('SHA-256', _concatBytes(...parts)));
 }
 
-function _directCloudShouldUseCDC(blob){
-  const size = Number(blob?.size || 0);
-  if(size <= 0) return false;
+function _directCloudAdaptivePartSize(file, cfg, payload){
+  const minPart = Number(cfg?.min_part_size || (5 * 1024 * 1024));
+  const recommended = Number(cfg?.recommended_part_size || DirectCloudE2EE.partSize || (16 * 1024 * 1024));
+  const size = Number(payload?.stored_size || file?.size || 0);
   const mem = Number(navigator.deviceMemory || 0);
   const cores = Number(navigator.hardwareConcurrency || 0);
   const lowSpec = (mem && mem <= 2) || (cores && cores <= 2);
+  let part = recommended;
+  if(size <= minPart) part = minPart;
+  else if(_directCloudIsMediaOrPacked(file)) part = 32 * 1024 * 1024;
+  else if(size <= 32 * 1024 * 1024) part = minPart;
+  else if(size >= 512 * 1024 * 1024) part = 32 * 1024 * 1024;
+  if(lowSpec) part = Math.max(minPart, Math.min(part, 16 * 1024 * 1024));
+  return Math.max(minPart, Math.min(part, 64 * 1024 * 1024));
+}
+
+function _directCloudShouldUseBlockDedupe(file, payload){
+  const size = Number(payload?.stored_size || file?.size || 0);
+  if(size <= 0) return false;
+  if(size < 1024 * 1024) return false;
+  if(_directCloudIsMediaOrPacked(file) && size < 16 * 1024 * 1024) return false;
+  return true;
+}
+
+function _directCloudShouldUseCDC(blob, file){
+  const size = Number(blob?.size || 0);
+  if(size <= 0) return false;
+  if(_directCloudIsMediaOrPacked(file)) return false;
+  const mem = Number(navigator.deviceMemory || 0);
+  const cores = Number(navigator.hardwareConcurrency || 0);
+  const lowSpec = (mem && mem <= 2) || (cores && cores <= 2);
+  if(lowSpec && size > 64 * 1024 * 1024) return false;
   if(lowSpec && size > 128 * 1024 * 1024) return false;
   if(size > 1024 * 1024 * 1024) return false;
   return true;
@@ -3759,18 +3808,19 @@ function _directCloudGearTable(){
   return table;
 }
 
-async function _directCloudCDCBlocks(blob, partSize){
+async function _directCloudCDCBlocks(blob, partSize, file){
   const size = Number(blob?.size || 0);
   if(size <= 0) return [{start:0, end:0}];
-  if(!_directCloudShouldUseCDC(blob)){
+  if(!_directCloudShouldUseCDC(blob, file)){
     const fixed = [];
     for(let start=0; start<size; start+=partSize) fixed.push({start, end:Math.min(size, start + partSize)});
     return fixed;
   }
 
-  const minSize = Math.max(2 * 1024 * 1024, Math.min(4 * 1024 * 1024, Math.floor(partSize / 8)));
-  const avgSize = Math.max(4 * 1024 * 1024, Math.min(8 * 1024 * 1024, Math.floor(partSize / 4)));
-  const maxSize = Math.max(avgSize * 2, Math.min(partSize, 16 * 1024 * 1024));
+  const docLike = !_directCloudIsMediaOrPacked(file) && Number(file?.size || size) <= 64 * 1024 * 1024;
+  const minSize = docLike ? 512 * 1024 : Math.max(2 * 1024 * 1024, Math.min(4 * 1024 * 1024, Math.floor(partSize / 8)));
+  const avgSize = docLike ? 2 * 1024 * 1024 : Math.max(4 * 1024 * 1024, Math.min(8 * 1024 * 1024, Math.floor(partSize / 4)));
+  const maxSize = docLike ? 6 * 1024 * 1024 : Math.max(avgSize * 2, Math.min(partSize, 16 * 1024 * 1024));
   const maskBits = Math.max(20, Math.min(24, Math.round(Math.log2(avgSize))));
   const mask = (1 << maskBits) - 1;
   const gear = _directCloudGearTable();
@@ -3807,8 +3857,8 @@ async function _directCloudCDCBlocks(blob, partSize){
   return blocks;
 }
 
-async function _directCloudBlockManifest(blob, partSize, wrapKey){
-  const ranges = await _directCloudCDCBlocks(blob, partSize);
+async function _directCloudBlockManifest(blob, partSize, wrapKey, file){
+  const ranges = await _directCloudCDCBlocks(blob, partSize, file);
   const blocks = [];
   const local = new Map();
   const enc = new TextEncoder();
@@ -4252,8 +4302,8 @@ async function _uploadDirectCloudE2EE(item, folderId){
   if(payload.compression){
     console.info(`[MPD] Direct cloud compressed before encryption: ${fmtSize(file.size)} -> ${fmtSize(payload.stored_size)} (${Math.round(payload.compression.ratio * 100)}%)`);
   }
-  const partSize = Math.max(cfg.min_part_size || (5*1024*1024), DirectCloudE2EE.partSize);
-  const useBlockDedupe = !!cfg.block_dedupe_enabled;
+  const partSize = _directCloudAdaptivePartSize(file, cfg, payload);
+  const useBlockDedupe = !!cfg.block_dedupe_enabled && _directCloudShouldUseBlockDedupe(file, payload);
 
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
   const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
@@ -4263,7 +4313,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
   const partIvPrefix = crypto.getRandomValues(new Uint8Array(8));
   const wrapKey = await DirectCloudE2EE.deriveWrapKey(S._password, wrapSalt);
   const wrappedDek = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, rawDek));
-  const blockPlan = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize, wrapKey) : null;
+  const blockPlan = useBlockDedupe ? await _directCloudBlockManifest(payload.blob, partSize, wrapKey, file) : null;
   const partCount = blockPlan ? blockPlan.blocks.length : Math.max(1, Math.ceil(payload.stored_size / partSize));
   const ciphertextSize = blockPlan
     ? blockPlan.blocks.reduce((sum, block)=>sum + Number(block.ciphertext_size || 0), 0)
