@@ -4185,8 +4185,14 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
         const block = blockEntries[partNumber - 1];
         if(!block || !block.download_url) throw new Error('Encrypted cloud block download URL is missing');
         cipherLen = Number(block.ciphertext_size || 0);
-        res = await fetch(block.download_url);
-        if(!res.ok) throw new Error(`Encrypted cloud block download failed: ${res.status}`);
+        const headers = {};
+        if(block.is_packed && Number.isFinite(Number(block.range_start)) && Number.isFinite(Number(block.range_end))){
+          headers.Range = `bytes=${Number(block.range_start)}-${Number(block.range_end)}`;
+        }
+        res = await fetch(block.download_url, {headers});
+        if(block.is_packed){
+          if(!(res.status === 206 || res.ok)) throw new Error(`Encrypted cloud packed block download failed: ${res.status}`);
+        }else if(!res.ok) throw new Error(`Encrypted cloud block download failed: ${res.status}`);
       }else{
         const plainStart = (partNumber - 1) * partSize;
         const plainLen = Math.min(partSize, Math.max(0, storedPlaintextSize - plainStart));
@@ -4399,15 +4405,22 @@ async function _uploadDirectCloudE2EE(item, folderId){
       ? (session.block_urls || []).map(p => [Number(p.sequence), p.url])
       : (session.part_urls || []).map(p => [Number(p.part_number), p.url])
   );
+  const packUploads = isBlockSession && Array.isArray(session.pack_uploads) ? session.pack_uploads : [];
+  const packedSequences = new Set();
+  for(const pack of packUploads){
+    for(const block of (pack.blocks || [])) packedSequences.add(Number(block.sequence));
+  }
   const progress = new Array(partCount).fill(isBlockSession ? 1 : 0);
   if(isBlockSession){
     for(const p of (session.block_urls || [])) progress[Number(p.sequence)-1] = 0;
+    for(const seq of packedSequences) progress[seq-1] = 0;
     item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
     renderUploadQ();
   }
   const etags = new Array(partCount);
+  const packEtags = new Map();
 
-  async function putPart(partNumber){
+  async function encryptPart(partNumber){
     const localBlock = blockPlan?.local?.get(partNumber);
     const start = localBlock ? localBlock.start : (partNumber - 1) * partSize;
     const end = localBlock ? localBlock.end : Math.min(payload.stored_size, start + partSize);
@@ -4416,61 +4429,99 @@ async function _uploadDirectCloudE2EE(item, folderId){
       ? await crypto.subtle.importKey('raw', localBlock.keyRaw, {name:'AES-GCM'}, false, ['encrypt'])
       : dek;
     const cipherIv = localBlock ? localBlock.iv : DirectCloudE2EE.partIv(partIvPrefix, partNumber);
-    const cipher = await crypto.subtle.encrypt({name:'AES-GCM', iv:cipherIv}, cipherKey, plain);
-    const url = urls.get(partNumber);
-    if(!url && isBlockSession){
-      progress[partNumber-1] = 1;
-      return true;
-    }
-    if(!url) throw new Error('Missing signed upload URL');
+    return await crypto.subtle.encrypt({name:'AES-GCM', iv:cipherIv}, cipherKey, plain);
+  }
+
+  async function putBlob(url, blob, label, onProgress){
     let attempt = 0;
     while(true){
       try{
-        await new Promise((resolve, reject) => {
+        return await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('PUT', url);
           xhr.upload.onprogress = e => {
-            if(e.lengthComputable){
-              progress[partNumber-1] = e.loaded / e.total;
-              item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
-              renderUploadQ();
-            }
+            if(e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
           };
           xhr.onload = () => {
             if(xhr.status >= 200 && xhr.status < 300){
               const etag = xhr.getResponseHeader('ETag');
               if(!etag) reject(new Error('Storage CORS must expose the ETag header'));
-              else {
-                etags[partNumber-1] = etag;
-                progress[partNumber-1] = 1;
-                item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
-                renderUploadQ();
-                resolve(true);
-              }
+              else resolve(etag);
               return;
             }
-            reject(new Error(`Storage part ${partNumber}/${partCount} failed: ${xhr.status}`));
+            reject(new Error(`Storage ${label} failed: ${xhr.status}`));
           };
-          xhr.onerror = () => reject(new Error(`Storage part ${partNumber}/${partCount} network error`));
+          xhr.onerror = () => reject(new Error(`Storage ${label} network error`));
           xhr.timeout = 240000;
-          xhr.ontimeout = () => reject(new Error(`Storage part ${partNumber}/${partCount} timed out`));
-          xhr.send(new Blob([cipher], {type:'application/octet-stream'}));
+          xhr.ontimeout = () => reject(new Error(`Storage ${label} timed out`));
+          xhr.send(blob);
         });
-        return true;
       }catch(e){
         attempt++;
-        if(item.status === 'cancelled') return false;
+        if(item.status === 'cancelled') return null;
         if(attempt >= 4) throw e;
         await _sleep(2000 * Math.pow(2, attempt - 1));
       }
     }
   }
 
+  async function putPart(partNumber){
+    const cipher = await encryptPart(partNumber);
+    const url = urls.get(partNumber);
+    if(!url && isBlockSession){
+      progress[partNumber-1] = 1;
+      return true;
+    }
+    if(!url) throw new Error('Missing signed upload URL');
+    const etag = await putBlob(
+      url,
+      new Blob([cipher], {type:'application/octet-stream'}),
+      `part ${partNumber}/${partCount}`,
+      ratio => {
+        progress[partNumber-1] = ratio;
+        item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
+        renderUploadQ();
+      }
+    );
+    if(etag === null) return false;
+    etags[partNumber-1] = etag;
+    progress[partNumber-1] = 1;
+    item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
+    renderUploadQ();
+    return true;
+  }
+
+  async function putPack(pack){
+    const parts = [];
+    const sequences = (pack.blocks || []).map(b => Number(b.sequence)).filter(Boolean);
+    for(const seq of sequences){
+      parts.push(await encryptPart(seq));
+    }
+    const etag = await putBlob(
+      pack.url,
+      new Blob(parts, {type:'application/octet-stream'}),
+      `pack ${pack.pack_index}`,
+      ratio => {
+        for(const seq of sequences) progress[seq-1] = ratio;
+        item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
+        renderUploadQ();
+      }
+    );
+    if(etag === null) return false;
+    packEtags.set(Number(pack.pack_index), etag);
+    for(const seq of sequences) progress[seq-1] = 1;
+    item.progress = progress.reduce((a,v)=>a+v,0) / partCount;
+    renderUploadQ();
+    return true;
+  }
+
   try{
+    await Promise.all(packUploads.map(pack => putPack(pack)));
     let next = 1;
     async function worker(){
       while(next <= partCount){
         const n = next++;
+        if(packedSequences.has(n)) continue;
         await putPart(n);
       }
     }
@@ -4479,6 +4530,9 @@ async function _uploadDirectCloudE2EE(item, folderId){
     const parts = etags
       .map((etag, idx) => ({part_number:idx+1, sequence:idx+1, etag}))
       .filter(part => !isBlockSession || urls.has(part.sequence));
+    for(const [packIndex, etag] of packEtags.entries()){
+      parts.push({pack_index:packIndex, etag});
+    }
     const completeResult = await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
       parts,
       ciphertext_size:ciphertextSize,
