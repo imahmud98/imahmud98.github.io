@@ -3892,12 +3892,14 @@ async function _makeImageThumbnailBlob(file, maxPx=180, quality=0.62){
 }
 
 async function _makeEncryptedDirectThumbnail(file, dek){
+  if(file && Number(file.size || 0) < 64 * 1024) return {metadata:null, derivedStorageSize:0};
   const thumb = await _makeImageThumbnailBlob(file).catch(()=>null);
   if(!thumb) return {metadata:null, derivedStorageSize:0};
   const plain = await thumb.blob.arrayBuffer();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv}, dek, plain));
   if(cipher.byteLength > 40 * 1024) return {metadata:null, derivedStorageSize:0};
+  if(file && cipher.byteLength > Math.max(4096, Math.floor(Number(file.size || 0) * 0.1))) return {metadata:null, derivedStorageSize:0};
   return {
     metadata:{
       alg:'AES-256-GCM',
