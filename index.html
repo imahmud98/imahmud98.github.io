@@ -3554,6 +3554,137 @@ async function _directCloudContentFingerprint(file){
   return _hexBytes(scopedDigest);
 }
 
+async function _sha256HexArrayBuffer(buffer){
+  return _hexBytes(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)));
+}
+
+function _bytesToB64(bytes){
+  return DirectCloudE2EE.b64(bytes);
+}
+
+async function _makeJsonBlockDelta(baseBlob, targetBlob){
+  const blockSize = 64 * 1024;
+  const baseBuf = await baseBlob.arrayBuffer();
+  const targetBuf = await targetBlob.arrayBuffer();
+  const base = new Uint8Array(baseBuf);
+  const target = new Uint8Array(targetBuf);
+  const baseMap = new Map();
+  for(let off=0; off<base.length; off += blockSize){
+    const end = Math.min(base.length, off + blockSize);
+    if(end - off < Math.min(4096, blockSize)) continue;
+    const digest = await _sha256HexArrayBuffer(base.slice(off, end).buffer);
+    if(!baseMap.has(digest)) baseMap.set(digest, {offset:off, length:end-off});
+  }
+  const ops = [];
+  let literal = [];
+  function flushLiteral(){
+    if(!literal.length) return;
+    const total = literal.reduce((n,a)=>n+a.length,0);
+    const out = new Uint8Array(total);
+    let pos = 0;
+    for(const part of literal){ out.set(part, pos); pos += part.length; }
+    ops.push({data:_bytesToB64(out)});
+    literal = [];
+  }
+  for(let off=0; off<target.length; off += blockSize){
+    const end = Math.min(target.length, off + blockSize);
+    const chunk = target.slice(off, end);
+    const digest = await _sha256HexArrayBuffer(chunk.buffer);
+    const match = baseMap.get(digest);
+    if(match && match.length === chunk.length){
+      flushLiteral();
+      const prev = ops[ops.length - 1];
+      if(prev && prev.copy && prev.copy[0] + prev.copy[1] === match.offset){
+        prev.copy[1] += match.length;
+      }else{
+        ops.push({copy:[match.offset, match.length]});
+      }
+    }else{
+      literal.push(chunk);
+    }
+  }
+  flushLiteral();
+  const patch = {
+    version:1,
+    alg:'mpd-json-block-delta-v1',
+    block_size:blockSize,
+    base_sha256:await _sha256HexArrayBuffer(baseBuf),
+    target_sha256:await _sha256HexArrayBuffer(targetBuf),
+    target_size:target.length,
+    ops
+  };
+  const patchBytes = new TextEncoder().encode(JSON.stringify(patch));
+  return {patch, patchBytes};
+}
+
+async function _applyJsonBlockDelta(baseBlob, patchBytes){
+  const patch = JSON.parse(new TextDecoder().decode(patchBytes));
+  if(!patch || patch.alg !== 'mpd-json-block-delta-v1' || !Array.isArray(patch.ops)){
+    throw new Error('Unsupported encrypted cloud delta format');
+  }
+  const baseBuf = await baseBlob.arrayBuffer();
+  const base = new Uint8Array(baseBuf);
+  const baseHash = await _sha256HexArrayBuffer(baseBuf);
+  if(patch.base_sha256 && patch.base_sha256 !== baseHash){
+    throw new Error('Encrypted cloud delta base checksum mismatch');
+  }
+  const out = new Uint8Array(Number(patch.target_size || 0));
+  let pos = 0;
+  for(const op of patch.ops){
+    if(op.copy){
+      const off = Number(op.copy[0] || 0);
+      const len = Number(op.copy[1] || 0);
+      out.set(base.slice(off, off + len), pos);
+      pos += len;
+    }else if(op.data){
+      const bytes = DirectCloudE2EE.b64ToBytes(op.data);
+      out.set(bytes, pos);
+      pos += bytes.length;
+    }
+  }
+  if(pos !== out.length) throw new Error('Encrypted cloud delta reconstructed size mismatch');
+  const targetHash = await _sha256HexArrayBuffer(out.buffer);
+  if(patch.target_sha256 && patch.target_sha256 !== targetHash){
+    throw new Error('Encrypted cloud delta target checksum mismatch');
+  }
+  return out;
+}
+
+function _directCloudShouldTryDelta(file, cfg){
+  if(!cfg?.delta_uploads_enabled || !file || file.size <= 256 * 1024) return false;
+  const max = Number(cfg.delta_max_size || (64 * 1024 * 1024));
+  if(file.size > max) return false;
+  const mem = Number(navigator.deviceMemory || 0);
+  const cores = Number(navigator.hardwareConcurrency || 0);
+  if((mem && mem <= 2 && file.size > 16 * 1024 * 1024) || (cores && cores <= 2 && file.size > 16 * 1024 * 1024)) return false;
+  const name = String(file.name || '').toLowerCase();
+  const mime = String(file.type || '').toLowerCase();
+  if(/^(audio|image|video)\//.test(mime)) return false;
+  if(/\.(mp4|mov|mkv|avi|jpg|jpeg|png|webp|heic|zip|rar|7z|gz|xz|zst|iso)$/i.test(name)) return false;
+  return true;
+}
+
+async function _prepareDirectCloudDelta(file, folderId, cfg){
+  if(!_directCloudShouldTryDelta(file, cfg)) return null;
+  const qs = new URLSearchParams({filename:file.name, size:String(file.size)});
+  if(folderId != null) qs.set('folder_id', folderId);
+  const candidateResp = await api('GET', `/files/direct-upload/delta-candidate?${qs.toString()}`).catch(()=>null);
+  const candidate = candidateResp?.candidate;
+  if(!candidate || !candidate.id || Number(candidate.id) <= 0) return null;
+  const baseInfo = await api('GET', `/files/direct-upload/${candidate.id}/download-url`).catch(()=>null);
+  if(!baseInfo) return null;
+  const baseBlob = await _downloadDirectCloudE2EE(
+    {id:candidate.id, name:candidate.name || file.name, status:'preparing', progress:0},
+    null,
+    {returnBlob:true, info:baseInfo}
+  );
+  const delta = await _makeJsonBlockDelta(baseBlob, file);
+  const maxDelta = Math.min(Math.floor(file.size * 0.7), file.size - 64 * 1024);
+  if(delta.patchBytes.byteLength <= 0 || delta.patchBytes.byteLength >= maxDelta) return null;
+  console.info(`[MPD] Direct cloud client delta selected: ${fmtSize(file.size)} -> ${fmtSize(delta.patchBytes.byteLength)} against file #${candidate.id}`);
+  return {base:candidate, baseInfo, ...delta};
+}
+
 async function _directCloudDedupeHmacKey(){
   const enc = new TextEncoder();
   const userId = S.user?.id || S.user?.user_id || '0';
@@ -3782,6 +3913,105 @@ async function _makeEncryptedDirectThumbnail(file, dek){
   };
 }
 
+async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
+  const file = item.file;
+  const rawDek = crypto.getRandomValues(new Uint8Array(32));
+  const dek = await crypto.subtle.importKey('raw', rawDek, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
+  const wrapSalt = crypto.getRandomValues(new Uint8Array(16));
+  const wrapIv = crypto.getRandomValues(new Uint8Array(12));
+  const metadataIv = crypto.getRandomValues(new Uint8Array(12));
+  const patchIv = crypto.getRandomValues(new Uint8Array(12));
+  const wrapKey = await DirectCloudE2EE.deriveWrapKey(S._password, wrapSalt);
+  const wrappedDek = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:wrapIv}, wrapKey, rawDek));
+  const patchCipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:patchIv}, dek, deltaPlan.patchBytes));
+  const metadataPlain = new TextEncoder().encode(JSON.stringify({
+    name:file.name,
+    mime_type:file.type || 'application/octet-stream',
+    size:file.size,
+    last_modified:file.lastModified || null,
+    delta_base_file_id:deltaPlan.base.id
+  }));
+  const metadataCipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv:metadataIv}, dek, metadataPlain));
+  const thumbResult = await _makeEncryptedDirectThumbnail(file, dek);
+  const encryptedMetadata = {
+    alg:'AES-256-GCM',
+    iv:DirectCloudE2EE.b64(metadataIv),
+    ciphertext:DirectCloudE2EE.b64(metadataCipher)
+  };
+  if(thumbResult.metadata) encryptedMetadata.thumbnail = thumbResult.metadata;
+  const encryptionManifest = {
+    version:1,
+    mode:'client_e2ee_s3',
+    object_layout:'delta',
+    content_alg:'AES-256-GCM-delta-object',
+    kdf:{name:'PBKDF2-SHA256', iterations:600000, salt:DirectCloudE2EE.b64(wrapSalt)},
+    wrapped_dek:{alg:'AES-256-GCM', iv:DirectCloudE2EE.b64(wrapIv), ciphertext:DirectCloudE2EE.b64(wrappedDek)},
+    plaintext_size:file.size,
+    stored_plaintext_size:deltaPlan.patchBytes.byteLength,
+    ciphertext_size:patchCipher.byteLength,
+    delta:{
+      alg:deltaPlan.patch.alg,
+      base_file_id:deltaPlan.base.id,
+      base_sha256:deltaPlan.patch.base_sha256,
+      target_sha256:deltaPlan.patch.target_sha256,
+      target_size:deltaPlan.patch.target_size,
+      patch_iv:DirectCloudE2EE.b64(patchIv),
+      patch_plaintext_size:deltaPlan.patchBytes.byteLength
+    }
+  };
+  const contentFingerprint = await _directCloudContentFingerprint(file).catch(()=>null);
+  const session = await api('POST', '/files/direct-upload/session', {
+    filename:file.name,
+    folder_id:folderId,
+    mime_type:file.type || 'application/octet-stream',
+    plaintext_size:file.size,
+    stored_plaintext_size:deltaPlan.patchBytes.byteLength,
+    ciphertext_size:patchCipher.byteLength,
+    derived_storage_size:thumbResult.derivedStorageSize || 0,
+    part_size:Math.max(cfg.min_part_size || (5*1024*1024), patchCipher.byteLength),
+    part_count:1,
+    delta_base_file_id:deltaPlan.base.id,
+    delta_alg:deltaPlan.patch.alg,
+    content_fingerprint:contentFingerprint,
+    fingerprint_alg:contentFingerprint ? 'hmac-sha256-pbkdf2-user-v1' : null,
+    encrypted_metadata:encryptedMetadata,
+    encryption_manifest:encryptionManifest
+  });
+  if(!session || session.object_layout !== 'delta' || !session.upload_url) return null;
+  item.status='uploading'; item.progress=0; renderUploadQ();
+  const etag = await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', session.upload_url);
+    xhr.upload.onprogress = e => {
+      if(e.lengthComputable){
+        item.progress = e.loaded / e.total;
+        renderUploadQ();
+      }
+    };
+    xhr.onload = () => {
+      if(xhr.status >= 200 && xhr.status < 300){
+        resolve(xhr.getResponseHeader('ETag') || '');
+      }else{
+        reject(new Error(`Storage delta upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Storage delta upload network error'));
+    xhr.timeout = 240000;
+    xhr.ontimeout = () => reject(new Error('Storage delta upload timed out'));
+    xhr.send(new Blob([patchCipher], {type:'application/octet-stream'}));
+  });
+  await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
+    parts:[{part_number:1, sequence:1, etag}],
+    ciphertext_size:patchCipher.byteLength,
+    stored_plaintext_size:deltaPlan.patchBytes.byteLength,
+    derived_storage_size:thumbResult.derivedStorageSize || 0,
+    encrypted_metadata:encryptedMetadata,
+    encryption_manifest:encryptionManifest
+  });
+  item.status='done'; item.progress=1; renderUploadQ();
+  return true;
+}
+
 async function _directCloudThumbUrl(fileId){
   if(!S._password) return null;
   const info = await api('GET', `/files/direct-upload/${fileId}/download-url`);
@@ -3824,6 +4054,43 @@ async function _downloadDirectCloudE2EE(item, dirHandle, options={}){
   let plainDone = 0;
   let writable = null;
   const plaintextParts = [];
+
+  if(info.object_layout === 'delta'){
+    const deltaMeta = manifest.delta || {};
+    if(!info.base || !deltaMeta.patch_iv) throw new Error('Encrypted cloud delta metadata is missing');
+    const res = await fetch(info.download_url);
+    if(!res.ok) throw new Error(`Encrypted cloud delta download failed: ${res.status}`);
+    const cipher = await res.arrayBuffer();
+    const patchPlain = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:DirectCloudE2EE.b64ToBytes(deltaMeta.patch_iv)},
+      dek,
+      cipher
+    );
+    const baseBlob = await _downloadDirectCloudE2EE(
+      {id:info.delta_base_file_id, name:info.base.filename || 'base', status:item.status, progress:0},
+      null,
+      {returnBlob:true, info:info.base}
+    );
+    const reconstructed = await _applyJsonBlockDelta(baseBlob, new Uint8Array(patchPlain));
+    let blob = new Blob([reconstructed], {type:info.mime_type || 'application/octet-stream'});
+    if(dirHandle){
+      const fileHandle = await dirHandle.getFileHandle(item.name || info.filename || 'download', {create:true});
+      const out = await fileHandle.createWritable();
+      await out.write(await blob.arrayBuffer());
+      await out.close();
+      return null;
+    }
+    if(options.returnBlob) return blob;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = item.name || info.filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    return null;
+  }
 
   if(dirHandle && !(compression && compression.alg === 'gzip')){
     const fileHandle = await dirHandle.getFileHandle(item.name || info.filename || 'download', {create:true});
@@ -3924,6 +4191,18 @@ async function _uploadDirectCloudE2EE(item, folderId){
   console.info('[MPD] Cloud upload via direct encrypted B2/S3 multipart session');
   const file = item.file;
   item.status='preparing'; item.progress=0; renderUploadQ();
+  const deltaPlan = await _prepareDirectCloudDelta(file, folderId, cfg).catch(err => {
+    console.warn('[MPD] Direct cloud delta skipped:', err.message || err);
+    return null;
+  });
+  if(deltaPlan){
+    const deltaUploaded = await _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan).catch(err => {
+      console.warn('[MPD] Direct cloud delta upload failed, falling back to normal upload:', err.message || err);
+      return null;
+    });
+    if(deltaUploaded) return true;
+    item.status='preparing'; item.progress=0; renderUploadQ();
+  }
   const payload = await _prepareDirectCloudPayload(file);
   if(payload.compression){
     console.info(`[MPD] Direct cloud compressed before encryption: ${fmtSize(file.size)} -> ${fmtSize(payload.stored_size)} (${Math.round(payload.compression.ratio * 100)}%)`);
