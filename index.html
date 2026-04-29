@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -4044,6 +4044,7 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
   });
   item.status='verifying'; item.progress=1; renderUploadQ();
   await _verifyDirectCloudRoundTrip(item, file, completeResult);
+  item.billableSize = file.size + (thumbResult.derivedStorageSize || 0);
   item.status='done'; item.progress=1; renderUploadQ();
   return true;
 }
@@ -4349,6 +4350,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
 
   if(session && session.dedupe_hit){
     console.info('[MPD] Direct cloud same-user dedupe hit; reused encrypted storage object:', session.object_key);
+    item.billableSize = file.size + (thumbResult.derivedStorageSize || 0);
     item.status='done'; item.progress=1; renderUploadQ();
     return true;
   }
@@ -4449,6 +4451,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     });
     item.status='verifying'; item.progress=1; renderUploadQ();
     await _verifyDirectCloudRoundTrip(item, file, completeResult);
+    item.billableSize = file.size + (thumbResult.derivedStorageSize || 0);
     item.status='done'; item.progress=1; renderUploadQ();
     return true;
   }catch(e){
@@ -4705,7 +4708,7 @@ async function processUploads(){
   // Immediately update storage display with uploaded file sizes
   const uploadedBytes=S.uploadQueue
     .filter(i=>i.status==='done')
-    .reduce((sum,i)=>sum+(i.file.size||0),0);
+    .reduce((sum,i)=>sum+(i.billableSize || i.file.size || 0),0);
   if(uploadedBytes>0) applyStorageDelta(uploadedBytes);
   // Poll until backend storage updates (up to 8 attempts, 2s apart)
   pollDashboardUntilChanged(S._storageUsed, 8, 2000).catch(()=>{});
@@ -5469,7 +5472,9 @@ async function processUploadsRouted(){
   }
   if(S.activeSection === 'cloud') await loadCloudFiles();
   else await loadFiles();
-  const uploadedBytes = S.uploadQueue.filter(i=>i.status==='done').reduce((s,i)=>s+(i.file.size||0),0);
+  const uploadedBytes = S.uploadQueue
+    .filter(i=>i.status==='done')
+    .reduce((s,i)=>s+(i.billableSize || i.file.size || 0),0);
   if(uploadedBytes > 0) applyStorageDelta(uploadedBytes);
   pollDashboardUntilChanged(S._storageUsed, 8, 2000).catch(()=>{});
   // Restore dashboard upload destination if this batch was a cloud-section
