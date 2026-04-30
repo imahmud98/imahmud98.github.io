@@ -6841,6 +6841,38 @@ async function _downloadNasDirectChunked(item, url, headers, fileSize, writable,
   return merged.buffer;
 }
 
+async function _downloadNasDirectStreamed(item, url, headers, fileSize, writable, onProgress){
+  if(!writable) throw new Error('A save folder is required for large secure NAS downloads');
+  await _ensureFreshToken().catch(()=>{});
+
+  const res = await fetch(url, {headers});
+  if(!res.ok) throw new Error(`NAS download failed: ${res.status}`);
+  if(!res.body) throw new Error('Streaming download is not supported by this browser');
+
+  const reader = res.body.getReader();
+  let received = 0;
+  try{
+    while(true){
+      if(item.status === 'cancelled'){
+        await reader.cancel().catch(()=>{});
+        throw new Error('Download cancelled');
+      }
+      const {done, value} = await reader.read();
+      if(done) break;
+      const bytes = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength
+        ? value.buffer
+        : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+      const decBuf = await _decryptDownloadedBytes(bytes);
+      await writable.write(decBuf);
+      received += value.byteLength;
+      if(fileSize > 0) onProgress(Math.min(received / fileSize, 1));
+    }
+    onProgress(1);
+  }finally{
+    try{ reader.releaseLock(); }catch(_){}
+  }
+}
+
 /**
  * Mitigation for legacy browsers (no FileSystem API) on large files.
  * Instead of accumulating chunks in RAM (which causes 2Ã— file-size spike + merge),
@@ -6994,13 +7026,15 @@ async function runDownloads(dirHandle){
             }catch(_){}
           }
           if(_fileSizeDL > _NAS_DL_RELAY_CHUNK_THRESHOLD){
-            console.info(`[MPD] NAS direct LAN large file (${(_fileSizeDL/1024/1024).toFixed(1)} MB) â€” chunked streaming download`);
-            // Stream 2 MB slices with byte-range requests to cap RAM at ~4 MB peak
+            console.info(`[MPD] NAS direct large file (${(_fileSizeDL/1024/1024).toFixed(1)} MB) â€” streaming download`);
+            // Stream the authenticated response directly to disk. Some agent/public
+            // transfer hosts do not honor HTTP Range; using one streaming request
+            // avoids first-chunk timeouts while keeping the X-NAS-Token in headers.
             if(dirHandle){
               const fileHandle = await dirHandle.getFileHandle(item.name, {create:true});
               const writable   = await fileHandle.createWritable();
               try{
-                await _downloadNasDirectChunked(
+                await _downloadNasDirectStreamed(
                   item, _dlUrl, _dlHeaders, _fileSizeDL, writable,
                   pct => { item.progress = pct; renderDownloadQ(); }
                 );
