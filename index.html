@@ -9466,8 +9466,9 @@ function dbUpdateDevicePanel(){
     var agentPbar = document.getElementById('db-agent-pbar');
     var badge = document.getElementById('db-dev-badge');
 
-    // Use cached NAS devices so dashboard refreshes do not repeatedly hit the API tunnel.
-    _getNasDevicesCached().then(function(r){
+    // Dashboard needs wake metadata so it can show "Wake Setup" while
+    // the device is online and wake/power setup is incomplete.
+    _getNasDevicesCached({wake:true}).then(function(r){
       var devs = (r && r.devices) || [];
       var online = devs.filter(_nasDeviceIsLive);
       if(badge) badge.textContent = online.length + ' Online';
