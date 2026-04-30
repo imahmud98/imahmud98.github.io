@@ -5031,7 +5031,9 @@ const _NAS_SESSION_DEFAULT_PARALLEL   = 3;
 const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 1 * 1024 * 1024; // public backend tunnel: keep WS frames small and stable
 const _NAS_PUBLIC_INGRESS_PARALLEL    = 1;               // one backend tunnel cannot safely carry parallel upload frames
 const _NAS_TRANSFER_TUNNEL_CHUNK_SIZE = 2 * 1024 * 1024; // Cloudflare-hosted agent tunnel: smaller frames avoid late stalls
-const _NAS_TRANSFER_TUNNEL_PARALLEL   = 1;
+const _NAS_TRANSFER_TUNNEL_PARALLEL   = 2;               // fast path; 429/503 backpressure below slows individual chunks
+const _NAS_TRANSFER_TUNNEL_RETRIES    = 12;
+const _NAS_TRANSFER_TUNNEL_BACKOFF_MS = 1500;
 
 function _nasRelayChunkTimeoutMs(byteLength){
   // Scale timeout with chunk size so slower uplinks and low-spec NAS agents do
@@ -5213,7 +5215,12 @@ async function _uploadNasDirectSession(item, session){
               renderUploadQ();
               resolve(true);
             } else {
-              reject(new Error(`NAS direct session chunk failed: ${xhr.status}`));
+              let detail = '';
+              try{
+                const parsed = JSON.parse(xhr.responseText || '{}');
+                detail = parsed.error || parsed.detail || '';
+              }catch{}
+              reject(new Error(`NAS direct session chunk failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
             }
           };
           xhr.onerror = () => reject(new Error('NAS direct session network error'));
@@ -5225,15 +5232,25 @@ async function _uploadNasDirectSession(item, session){
       }catch(e){
         attempt++;
         if(item.status === 'cancelled') return false;
-        if(e.message === 'NAS direct session network error' || (e.message && (
-          e.message.includes('401') ||
-          e.message.includes('403') ||
-          e.message.includes('404') ||
-          e.message.includes('409')
-        ))) throw e;
-        if(attempt >= 5) throw e;
-        const wait = 2000 * Math.pow(2, attempt - 1);
-        console.warn(`[MPD] NAS direct session chunk ${i+1}/${totalChunks} failed (attempt ${attempt}), retrying in ${wait}ms:`, e.message);
+        const message = e.message || '';
+        const isBackpressure = message.includes('429') ||
+          message.includes('503') ||
+          message.toLowerCase().includes('busy') ||
+          message.toLowerCase().includes('temporarily');
+        if(message === 'NAS direct session network error' || (
+          message.includes('401') ||
+          message.includes('403') ||
+          message.includes('404') ||
+          message.includes('409')
+        )) throw e;
+        const maxAttempts = transferTunnel ? _NAS_TRANSFER_TUNNEL_RETRIES : 5;
+        if(attempt >= maxAttempts) throw e;
+        const waitBase = transferTunnel ? _NAS_TRANSFER_TUNNEL_BACKOFF_MS : 2000;
+        const waitCap = transferTunnel ? 12000 : 16000;
+        const wait = Math.min(waitCap, waitBase * Math.pow(1.7, attempt - 1)) +
+          Math.floor(Math.random() * 450);
+        const note = isBackpressure ? 'agent busy/backpressure' : 'transient error';
+        console.warn(`[MPD] NAS direct session chunk ${i+1}/${totalChunks} ${note} (attempt ${attempt}/${maxAttempts}), retrying in ${wait}ms:`, message);
         await _sleep(wait);
       }
     }
