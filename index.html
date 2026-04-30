@@ -5081,10 +5081,7 @@ function _normalizeNasDirectSession(session){
 function _shouldUseNasPublicIngress(url){
   try{
     const parsed = new URL(url, location.href);
-    const host = parsed.hostname.toLowerCase();
-    return parsed.protocol === 'http:' ||
-      host.endsWith('-transfer.mypocketdrive.online') ||
-      host.endsWith('.trycloudflare.com');
+    return parsed.protocol === 'http:';
   }catch{
     return String(url || '').startsWith('http:');
   }
@@ -5092,10 +5089,9 @@ function _shouldUseNasPublicIngress(url){
 
 function _isPublicNasTransferUrl(url){
   try{
-    const host = new URL(url, location.href).hostname.toLowerCase();
-    return host.endsWith('-transfer.mypocketdrive.online') ||
-      host.endsWith('.trycloudflare.com') ||
-      host === 'api.mypocketdrive.online';
+    const parsed = new URL(url, location.href);
+    return parsed.hostname.toLowerCase() === 'api.mypocketdrive.online' &&
+      parsed.pathname.includes('/nas/transfer/public/');
   }catch{
     return false;
   }
