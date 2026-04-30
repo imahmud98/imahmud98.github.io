@@ -5030,6 +5030,8 @@ const _NAS_SESSION_DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 const _NAS_SESSION_DEFAULT_PARALLEL   = 3;
 const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 1 * 1024 * 1024; // public backend tunnel: keep WS frames small and stable
 const _NAS_PUBLIC_INGRESS_PARALLEL    = 1;               // one backend tunnel cannot safely carry parallel upload frames
+const _NAS_TRANSFER_TUNNEL_CHUNK_SIZE = 2 * 1024 * 1024; // Cloudflare-hosted agent tunnel: smaller frames avoid late stalls
+const _NAS_TRANSFER_TUNNEL_PARALLEL   = 1;
 
 function _nasRelayChunkTimeoutMs(byteLength){
   // Scale timeout with chunk size so slower uplinks and low-spec NAS agents do
@@ -5107,6 +5109,16 @@ function _isPublicNasTransferUrl(url){
   }
 }
 
+function _isNasTransferTunnelUrl(url){
+  try{
+    const parsed = new URL(url, location.href);
+    return parsed.protocol === 'https:' &&
+      parsed.hostname.toLowerCase().endsWith('-transfer.mypocketdrive.online');
+  }catch{
+    return false;
+  }
+}
+
 async function _waitForNasTransferSession(sessionId){
   for(let attempt = 0; attempt < 20; attempt++){
     const status = await api('GET', `/nas/transfer/session/${sessionId}`);
@@ -5122,14 +5134,19 @@ async function _uploadNasDirectSession(item, session){
   const directBase = session.direct?.base_url || session.direct?.upload_chunk_url || '';
   const publicIngress = session.direct?.access_mode === 'public_ingress_client' ||
     _isPublicNasTransferUrl(directBase);
+  const transferTunnel = _isNasTransferTunnelUrl(directBase);
   const advertisedChunk = Number(session.chunk_size || _NAS_SESSION_DEFAULT_CHUNK_SIZE);
   const chunkSize = publicIngress
     ? Math.min(Math.max(512 * 1024, advertisedChunk), _NAS_PUBLIC_INGRESS_CHUNK_SIZE)
-    : Math.max(4 * 1024 * 1024, advertisedChunk);
+    : transferTunnel
+      ? Math.min(Math.max(1024 * 1024, advertisedChunk), _NAS_TRANSFER_TUNNEL_CHUNK_SIZE)
+      : Math.max(4 * 1024 * 1024, advertisedChunk);
   const totalChunks = Math.max(1, Math.ceil(totalSize / chunkSize));
   const parallel = publicIngress
     ? Math.max(1, Math.min(_NAS_PUBLIC_INGRESS_PARALLEL, totalChunks))
-    : Math.max(1, Math.min(Number(session.max_parallel || _NAS_SESSION_DEFAULT_PARALLEL), totalChunks, 4));
+    : transferTunnel
+      ? Math.max(1, Math.min(_NAS_TRANSFER_TUNNEL_PARALLEL, totalChunks))
+      : Math.max(1, Math.min(Number(session.max_parallel || _NAS_SESSION_DEFAULT_PARALLEL), totalChunks, 4));
   const baseHeaders = Object.assign({}, session.direct?.headers || {});
   const chunkProgress = new Array(totalChunks).fill(0);
   let nextChunk = 0;
@@ -5245,6 +5262,10 @@ async function _uploadNasDirectSession(item, session){
   for(let i = 0; i < parallel; i++) workers.push(_worker());
   const workerResults = await Promise.all(workers);
   if(workerResults.some(v => v === false)) return false;
+
+  item.status='verifying';
+  item.progress=0.995;
+  renderUploadQ();
 
   await _sendDirectControl(session.direct.complete_url, {
     filename: session.filename || file.name,
