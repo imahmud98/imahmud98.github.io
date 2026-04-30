@@ -6631,13 +6631,14 @@ async function downloadFolder(folderId, folderName) {
 }
 
 async function downloadFile(id,name,isNas=false){
-  // Guard NAS operations when agent is offline
-  if(isNas){
-    if(!await _guardNasOnline('Download')){ return; }
-  }
   // Pick the save dir FIRST while the click gesture is still active.
   const dirHandle=await _pickSaveDir();
   if(dirHandle===false)return; // user cancelled
+  // Guard NAS operations after the picker. Any await before showDirectoryPicker()
+  // breaks Chrome's user gesture and can force unsafe legacy redirects.
+  if(isNas){
+    if(!await _guardNasOnline('Download')){ return; }
+  }
   const srcFile = (
     S.files.find(f => String(f.id) === String(id) && !!f._nas === !!isNas) ||
     (!isNas ? _cloudFiles.find(f => String(f.id) === String(id)) : null) ||
@@ -6855,18 +6856,23 @@ async function _downloadNasDirectChunked(item, url, headers, fileSize, writable,
 async function _legacyNativeDownload(item, fileSize){
   if(fileSize <= _LEGACY_DL_RAM_CAP) return false; // small enough â€” let normal path handle it
 
-  // Show a user-friendly warning so they know what's about to happen
-  toast(`Redirecting "${item.name}" (${(fileSize/1024/1024/1024).toFixed(2)} GB) to native browser download â€” no tab crash.`, 'info');
-
   try{
     let nativeUrl;
     if(item._nas){
-      // Ask backend for a pre-signed relay URL that embeds auth in the URL itself
-      // so the browser can follow it without custom headers.
+      // NAS direct-transfer URLs require X-NAS-Token as a request header. A native
+      // <a> redirect cannot attach that header, which sends the browser to a naked
+      // /transfer/files/... URL and the agent returns "invalid or expired token".
+      // Keep NAS downloads inside the XHR/fetch path where headers are preserved.
       const info = await api('GET', `/nas/download-url/${item.id}?presign=1`);
       if(!info || !info.download_url) throw new Error('No presigned URL');
+      if(info.token || info.headers?.['X-NAS-Token']){
+        toast('Secure NAS download needs the app download path so the device token stays attached. Choose a save folder if prompted.','warn');
+        return false;
+      }
       nativeUrl = info.download_url;
     } else {
+      // Show a user-friendly warning so they know what's about to happen.
+      toast(`Redirecting "${item.name}" (${(fileSize/1024/1024/1024).toFixed(2)} GB) to native browser download â€” no tab crash.`, 'info');
       const info = await api('POST', `/files/${item.id}/download-ticket`);
       if(!info || !info.download_url) throw new Error('No download ticket');
       nativeUrl = info.download_url.startsWith('http') ? info.download_url : `${API}${info.download_url}`;
