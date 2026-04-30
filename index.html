@@ -6690,11 +6690,19 @@ async function _pickSaveDir(){
 // the decrypted copy in RAM at once regardless of total file size.
 const _NAS_DL_RELAY_CHUNK_THRESHOLD = 5 * 1024 * 1024;   // 5 MB â€” use chunked above this
 const _NAS_DL_RELAY_CHUNK_SIZE      = 5 * 1024 * 1024;   // 5 MB per slice
+const _NAS_DL_STREAM_WRITE_BUFFER   = 4 * 1024 * 1024;   // 4 MB batched filesystem writes
 // Legacy browser (no FileSystem API) safety cap â€” above this we refuse to accumulate chunks
 // in RAM and instead redirect to a native browser download URL.
 // 200 MB accumulated = 400 MB peak (merge step), still survivable on 2 GB RAM tabs.
 // Above 200 MB on legacy browsers the user gets a safe native download redirect.
 const _LEGACY_DL_RAM_CAP = 200 * 1024 * 1024; // 200 MB
+
+function _nasDownloadViaLabel(via){
+  if(via === 'relay') return 'relay tunnel';
+  if(via === 'agent_https_direct') return 'secure public transfer';
+  if(via === 'direct' || via === 'lan') return 'direct LAN';
+  return via || 'direct transfer';
+}
 
 async function _downloadNasRelayChunked(item, dlUrl, dlHeaders, fileSize, writable, onProgress){
   // The backend relay endpoint /nas/relay/{machine_id}/download/{path} is a single
@@ -6851,6 +6859,30 @@ async function _downloadNasDirectStreamed(item, url, headers, fileSize, writable
 
   const reader = res.body.getReader();
   let received = 0;
+  let pendingParts = [];
+  let pendingBytes = 0;
+  let lastProgressAt = 0;
+  let lastProgressPct = 0;
+
+  const flushPending = async () => {
+    if(!pendingBytes) return;
+    const payload = pendingParts.length === 1 ? pendingParts[0] : new Blob(pendingParts);
+    pendingParts = [];
+    pendingBytes = 0;
+    await writable.write(payload);
+  };
+
+  const emitProgress = (force=false) => {
+    if(fileSize <= 0) return;
+    const pct = Math.min(received / fileSize, 1);
+    const now = Date.now();
+    if(force || now - lastProgressAt >= 250 || pct - lastProgressPct >= 0.01){
+      lastProgressAt = now;
+      lastProgressPct = pct;
+      onProgress(pct);
+    }
+  };
+
   try{
     while(true){
       if(item.status === 'cancelled'){
@@ -6863,10 +6895,13 @@ async function _downloadNasDirectStreamed(item, url, headers, fileSize, writable
         ? value.buffer
         : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
       const decBuf = await _decryptDownloadedBytes(bytes);
-      await writable.write(decBuf);
+      pendingParts.push(decBuf);
+      pendingBytes += decBuf.byteLength;
+      if(pendingBytes >= _NAS_DL_STREAM_WRITE_BUFFER) await flushPending();
       received += value.byteLength;
-      if(fileSize > 0) onProgress(Math.min(received / fileSize, 1));
+      emitProgress();
     }
+    await flushPending();
     onProgress(1);
   }finally{
     try{ reader.releaseLock(); }catch(_){}
@@ -6945,7 +6980,8 @@ async function runDownloads(dirHandle){
         if(!_info || !_info.download_url) throw new Error('Could not get NAS download URL');
         _dlUrl = _info.download_url;
         const _isRelay = _info.via === 'relay';
-        console.info(`[MPD] NAS download via ${_isRelay ? 'relay tunnel' : 'direct LAN'}`);
+        const _viaLabel = _nasDownloadViaLabel(_info.via);
+        console.info(`[MPD] NAS download via ${_viaLabel}`);
         if(_isRelay){
           await _ensureFreshToken().catch(()=>{});
           _dlHeaders = {
@@ -7026,7 +7062,7 @@ async function runDownloads(dirHandle){
             }catch(_){}
           }
           if(_fileSizeDL > _NAS_DL_RELAY_CHUNK_THRESHOLD){
-            console.info(`[MPD] NAS direct large file (${(_fileSizeDL/1024/1024).toFixed(1)} MB) â€” streaming download`);
+            console.info(`[MPD] NAS ${_viaLabel} large file (${(_fileSizeDL/1024/1024).toFixed(1)} MB) â€” streaming download`);
             // Stream the authenticated response directly to disk. Some agent/public
             // transfer hosts do not honor HTTP Range; using one streaming request
             // avoids first-chunk timeouts while keeping the X-NAS-Token in headers.
@@ -7350,7 +7386,8 @@ let _tt;
 function toast(msg,type='info'){
   const el=document.getElementById('toast');
   const c={info:'bg-teal-700',error:'bg-red-600',success:'bg-green-600',warn:'bg-yellow-500'};
-  el.className=`fixed bottom-5 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50 fade-in ${c[type]||c.info}`;
+  el.className=`fixed bottom-5 left-1/2 -translate-x-1/2 text-white text-sm px-4 py-2 rounded-lg shadow-lg fade-in pointer-events-none ${c[type]||c.info}`;
+  el.style.cssText='z-index:13000;max-width:min(92vw,560px);text-align:center;line-height:1.35;';
   el.textContent=msg;el.classList.remove('hidden');
   clearTimeout(_tt);_tt=setTimeout(()=>el.classList.add('hidden'),4000);
 }
