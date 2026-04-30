@@ -1962,9 +1962,13 @@ function _tickSession(){
 function startSessionTimer(){
   if(S.sessionTimer) clearInterval(S.sessionTimer);
   S.sessionTimer=setInterval(_tickSession,10000);
-  // Refresh NAS device online/offline status every 30s
+  // Refresh NAS device online/offline status gently. Aggressive polling through
+  // Cloudflare can surface harmless ERR_CONNECTION_CLOSED noise in Chrome.
   if(S._nasDeviceTimer) clearInterval(S._nasDeviceTimer);
-  S._nasDeviceTimer=setInterval(()=>loadNasDevices().catch(()=>{}), 30000);
+  S._nasDeviceTimer=setInterval(()=>{
+    if(document.hidden || S.isUploading || S.isDownloading) return;
+    loadNasDevices().catch(()=>{});
+  }, 60000);
 }
 ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
   document.addEventListener(ev,resetActivity,{passive:true})
@@ -2010,12 +2014,33 @@ async function api(method,path,body=null,isForm=false,onProgress=null){
   h['ngrok-skip-browser-warning']='true';
   h['x-requested-with']='XMLHttpRequest';
 
+  const reqBody = isForm ? body : (body ? JSON.stringify(body) : null);
+  async function _fetchOnce(){
+    const ctrl = new AbortController();
+    const timeoutMs = method === 'GET' ? 25000 : 60000;
+    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+    try{
+      return await fetch(API+path,{method,headers:h,body:reqBody,signal:ctrl.signal});
+    }finally{
+      clearTimeout(tid);
+    }
+  }
+
   let res;
   try{
     if(isForm&&onProgress){
       return await _xhrUploadWithRetry(path,body,h,onProgress);
     }
-    res=await fetch(API+path,{method,headers:h,body:isForm?body:(body?JSON.stringify(body):null)});
+    try{
+      res=await _fetchOnce();
+    }catch(e){
+      if(method === 'GET'){
+        await new Promise(r=>setTimeout(r, 700));
+        res=await _fetchOnce();
+      }else{
+        throw e;
+      }
+    }
   }catch(e){throw new Error('Cannot reach server. Is the backend running?');}
 
   if(res.status===401){
@@ -2024,7 +2049,7 @@ async function api(method,path,body=null,isForm=false,onProgress=null){
       // Retry once with new token
       if(S.token)h['Authorization']=`Bearer ${S.token}`;
       try{
-        const res2=await fetch(API+path,{method,headers:h,body:isForm?body:(body?JSON.stringify(body):null)});
+        const res2=await _fetchOnce();
         if(res2.status===401){logout();return null;}
         const ct2=res2.headers.get('content-type')||'';
         if(ct2.includes('application/json')){const d2=await res2.json();if(!res2.ok)throw new Error(d2.detail||JSON.stringify(d2));return d2;}
@@ -4893,6 +4918,7 @@ function _dispatchUploads(){
 // Cache NAS storage stats (refresh every 15s)
 let _nasStats    = null;
 let _nasStatsTs  = 0;
+let _nasStatsPromise = null;
 // Browser-side reachability probe cache (separate from stats TTL)
 // null = unknown, true = reachable, false = unreachable
 let _nasReach    = null;
@@ -4902,6 +4928,8 @@ const _NAS_REACH_TTL = 15000; // re-probe every 15 s
 async function _getNasStats(){
   const now = Date.now();
   if(_nasStats && now - _nasStatsTs < 15000) return _nasStats;
+  if(_nasStatsPromise) return _nasStatsPromise;
+  _nasStatsPromise = (async()=>{
   try{
     const r = await api('GET', '/nas/device/storage-stats');
     _nasStats = r || {online: false};
@@ -4911,6 +4939,8 @@ async function _getNasStats(){
     _nasStatsTs = now;
   }
   return _nasStats;
+  })().finally(()=>{ _nasStatsPromise = null; });
+  return _nasStatsPromise;
 }
 
 /**
@@ -6021,12 +6051,15 @@ function handleDropCloud(e){
 
 // Track last known tunnel live state per machine so we can detect reconnects
 const _tunnelWasLive = new Map();
+let _loadNasDevicesPromise = null;
 
 async function loadNasDevices(){
   if(!S.token) return;  // skip if not authenticated â€” prevents 401 on page load race
   if(S.isUploading) return; // avoid noisy auth/status polling while large NAS transfers are active
+  if(_loadNasDevicesPromise) return _loadNasDevicesPromise;
   const el = document.getElementById('gc-agent');
   if(!el) return;
+  _loadNasDevicesPromise = (async()=>{
   try{
     const r = await api('GET', '/nas/devices');
     const devs = r.devices || [];
@@ -6084,6 +6117,8 @@ async function loadNasDevices(){
   }catch(e){
     el.innerHTML = '<div class="sb-grandchild" style="color:var(--mute)">Could not load</div>';
   }
+  })().finally(()=>{ _loadNasDevicesPromise = null; });
+  return _loadNasDevicesPromise;
 }
 
 // Show only files from a specific agent device in the drive section (all files, no folders)
@@ -9239,7 +9274,15 @@ function dbRestoreUploadDest(){
 }
 
 // â”€â”€ Load device info from existing API data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let _dbDevicePanelTs = 0;
+let _dbDevicePanelPromise = null;
 function dbUpdateDevicePanel(){
+  if(S.isUploading || S.isDownloading) return;
+  const panelNow = Date.now();
+  if(_dbDevicePanelPromise) return _dbDevicePanelPromise;
+  if(panelNow - _dbDevicePanelTs < 15000) return;
+  _dbDevicePanelTs = panelNow;
+  _dbDevicePanelPromise = Promise.resolve().then(function(){
   // Agent PC â€” pull from live NAS devices already loaded by loadNasDevices()
   try {
     var agentName = document.getElementById('db-agent-name');
@@ -9372,6 +9415,8 @@ function dbUpdateDevicePanel(){
     }
     _updateCloudStorCard();
   } catch(e){}
+  }).finally(function(){ _dbDevicePanelPromise = null; });
+  return _dbDevicePanelPromise;
 }
 
 async function dbWakePrimaryDevice(){
