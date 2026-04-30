@@ -3989,6 +3989,43 @@ async function _makeEncryptedDirectThumbnail(file, dek, cfg={}){
   };
 }
 
+function _isUploadCancelled(item){
+  return !!(item && (item.status === 'cancelled' || item._cancelRequested));
+}
+
+function _trackUploadXhr(item, xhr){
+  if(!item || !xhr) return xhr;
+  if(!item._activeXhrs) item._activeXhrs = new Set();
+  item._activeXhrs.add(xhr);
+  const drop = () => { try{ item._activeXhrs.delete(xhr); }catch(_){} };
+  xhr.addEventListener('loadend', drop);
+  xhr.addEventListener('abort', drop);
+  return xhr;
+}
+
+function _abortDirectCloudSessionForItem(item, reason='client_cancel'){
+  const uploadId = item && item._directCloudUploadId;
+  if(!uploadId || item._directCloudAbortSent === uploadId) return;
+  item._directCloudAbortSent = uploadId;
+  api('POST', `/files/direct-upload/${uploadId}/abort`, {reason}).catch(err => {
+    console.warn('[MPD] Direct cloud abort cleanup failed:', err.message || err);
+  });
+}
+
+function _abortActiveUploadTransport(item){
+  if(!item) return;
+  item._cancelRequested = true;
+  if(item.file?._xhr){
+    try{ item.file._xhr.abort(); }catch(_){}
+  }
+  if(item._activeXhrs){
+    for(const xhr of Array.from(item._activeXhrs)){
+      try{ xhr.abort(); }catch(_){}
+    }
+  }
+  if(item._directCloudUploadId) _abortDirectCloudSessionForItem(item, 'client_cancel');
+}
+
 async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
   const file = item.file;
   const rawDek = crypto.getRandomValues(new Uint8Array(32));
@@ -4036,7 +4073,7 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
     }
   };
   const contentFingerprint = await _directCloudContentFingerprint(file).catch(()=>null);
-  const session = await api('POST', '/files/direct-upload/session', {
+  let session = await api('POST', '/files/direct-upload/session', {
     filename:file.name,
     folder_id:folderId,
     mime_type:file.type || 'application/octet-stream',
@@ -4054,9 +4091,11 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
     encryption_manifest:encryptionManifest
   });
   if(!session || session.object_layout !== 'delta' || !session.upload_url) return null;
+  item._directCloudUploadId = session.upload_id;
   item.status='uploading'; item.progress=0; renderUploadQ();
   const etag = await new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
+    if(_isUploadCancelled(item)) return reject(new Error('Upload cancelled'));
+    const xhr = _trackUploadXhr(item, new XMLHttpRequest());
     xhr.open('PUT', session.upload_url);
     xhr.upload.onprogress = e => {
       if(e.lengthComputable){
@@ -4072,10 +4111,15 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
       }
     };
     xhr.onerror = () => reject(new Error('Storage delta upload network error'));
+    xhr.onabort = () => reject(new Error('Upload cancelled'));
     xhr.timeout = 240000;
     xhr.ontimeout = () => reject(new Error('Storage delta upload timed out'));
     xhr.send(new Blob([patchCipher], {type:'application/octet-stream'}));
   });
+  if(_isUploadCancelled(item)){
+    _abortDirectCloudSessionForItem(item, 'client_cancel');
+    throw new Error('Upload cancelled');
+  }
   const completeResult = await api('POST', `/files/direct-upload/${session.upload_id}/complete`, {
     parts:[{part_number:1, sequence:1, etag}],
     ciphertext_size:patchCipher.byteLength,
@@ -4088,6 +4132,7 @@ async function _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan){
   await _verifyDirectCloudRoundTrip(item, file, completeResult);
   item.billableSize = file.size + (thumbResult.derivedStorageSize || 0);
   item.status='done'; item.progress=1; renderUploadQ();
+  item._directCloudUploadId = null;
   return true;
 }
 
@@ -4290,9 +4335,16 @@ async function _uploadDirectCloudE2EE(item, folderId){
   });
   if(deltaPlan){
     const deltaUploaded = await _uploadDirectCloudDeltaE2EE(item, folderId, cfg, deltaPlan).catch(err => {
+      if(_isUploadCancelled(item) || String(err.message || err).toLowerCase().includes('cancel')){
+        _abortDirectCloudSessionForItem(item, 'client_cancel');
+        item.status='cancelled';
+        renderUploadQ();
+        return false;
+      }
       console.warn('[MPD] Direct cloud delta upload failed, falling back to normal upload:', err.message || err);
       return null;
     });
+    if(deltaUploaded === false && _isUploadCancelled(item)) return false;
     if(deltaUploaded) return true;
     item.status='preparing'; item.progress=0; renderUploadQ();
   }
@@ -4402,6 +4454,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     item.status='done'; item.progress=1; renderUploadQ();
     return true;
   }
+  item._directCloudUploadId = session.upload_id;
 
   const isBlockSession = session.object_layout === 'blocks';
   const urls = new Map(
@@ -4440,8 +4493,9 @@ async function _uploadDirectCloudE2EE(item, folderId){
     let attempt = 0;
     while(true){
       try{
+        if(_isUploadCancelled(item)) throw new Error('Upload cancelled');
         return await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
+          const xhr = _trackUploadXhr(item, new XMLHttpRequest());
           xhr.open('PUT', url);
           xhr.upload.onprogress = e => {
             if(e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
@@ -4456,13 +4510,14 @@ async function _uploadDirectCloudE2EE(item, folderId){
             reject(new Error(`Storage ${label} failed: ${xhr.status}`));
           };
           xhr.onerror = () => reject(new Error(`Storage ${label} network error`));
+          xhr.onabort = () => reject(new Error('Upload cancelled'));
           xhr.timeout = 240000;
           xhr.ontimeout = () => reject(new Error(`Storage ${label} timed out`));
           xhr.send(blob);
         });
       }catch(e){
         attempt++;
-        if(item.status === 'cancelled') return null;
+        if(_isUploadCancelled(item)) throw new Error('Upload cancelled');
         if(attempt >= 4) throw e;
         await _sleep(2000 * Math.pow(2, attempt - 1));
       }
@@ -4524,6 +4579,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     let next = 1;
     async function worker(){
       while(next <= partCount){
+        if(_isUploadCancelled(item)) throw new Error('Upload cancelled');
         const n = next++;
         if(packedSequences.has(n)) continue;
         await putPart(n);
@@ -4531,6 +4587,7 @@ async function _uploadDirectCloudE2EE(item, folderId){
     }
     const parallel = Math.min(session.max_parallel || 4, partCount);
     await Promise.all(Array.from({length:parallel}, worker));
+    if(_isUploadCancelled(item)) throw new Error('Upload cancelled');
     const parts = etags
       .map((etag, idx) => ({part_number:idx+1, sequence:idx+1, etag}))
       .filter(part => !isBlockSession || urls.has(part.sequence));
@@ -4549,9 +4606,17 @@ async function _uploadDirectCloudE2EE(item, folderId){
     await _verifyDirectCloudRoundTrip(item, file, completeResult);
     item.billableSize = file.size + (thumbResult.derivedStorageSize || 0);
     item.status='done'; item.progress=1; renderUploadQ();
+    item._directCloudUploadId = null;
     return true;
   }catch(e){
-    try{ await api('POST', `/files/direct-upload/${session.upload_id}/abort`, {reason:e.message || 'upload_failed'}); }catch(_){}
+    try{ await api('POST', `/files/direct-upload/${session.upload_id}/abort`, {reason:_isUploadCancelled(item) ? 'client_cancel' : (e.message || 'upload_failed')}); }catch(_){}
+    item._directCloudUploadId = null;
+    if(_isUploadCancelled(item) || String(e.message || e).toLowerCase().includes('cancel')){
+      item.status='cancelled';
+      item.error='';
+      renderUploadQ();
+      return false;
+    }
     item.status='error';
     item.error='Direct encrypted cloud upload failed: '+(e.message||e);
     renderUploadQ();
@@ -6193,7 +6258,7 @@ function _fmtBytesShort(b){
 function cancelUpload(idx){
   const item=S.uploadQueue[idx];
   if(!item)return;
-  if(item.file._xhr){item.file._xhr.abort();}
+  _abortActiveUploadTransport(item);
   item.status='cancelled';renderUploadQ();
 }
 function clearUploadQ(){if(S.isUploading)return;S.uploadQueue=[];hideModal('upload-modal');}
