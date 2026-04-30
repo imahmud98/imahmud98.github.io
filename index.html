@@ -1967,6 +1967,8 @@ function startSessionTimer(){
   if(S._nasDeviceTimer) clearInterval(S._nasDeviceTimer);
   S._nasDeviceTimer=setInterval(()=>{
     if(document.hidden || S.isUploading || S.isDownloading) return;
+    const agentOpen = document.getElementById('gc-agent')?.classList.contains('open');
+    if(!agentOpen && S.activeSection !== 'dashboard') return;
     loadNasDevices().catch(()=>{});
   }, 60000);
 }
@@ -6052,6 +6054,31 @@ function handleDropCloud(e){
 // Track last known tunnel live state per machine so we can detect reconnects
 const _tunnelWasLive = new Map();
 let _loadNasDevicesPromise = null;
+let _nasDevicesCache = null;
+let _nasDevicesTs = 0;
+let _nasDevicesPromise = null;
+
+async function _getNasDevicesCached(opts){
+  opts = opts || {};
+  const wake = !!opts.wake;
+  const force = !!opts.force;
+  const now = Date.now();
+  if(!wake && !force && _nasDevicesCache && now - _nasDevicesTs < 30000){
+    return _nasDevicesCache;
+  }
+  if(!wake && _nasDevicesPromise) return _nasDevicesPromise;
+  const loader = api('GET', wake ? '/nas/devices?wake=1' : '/nas/devices?wake=0')
+    .then(function(r){
+      if(!wake){
+        _nasDevicesCache = r || {devices: []};
+        _nasDevicesTs = Date.now();
+      }
+      return r || {devices: []};
+    });
+  if(wake) return loader;
+  _nasDevicesPromise = loader.finally(function(){ _nasDevicesPromise = null; });
+  return _nasDevicesPromise;
+}
 
 async function loadNasDevices(){
   if(!S.token) return;  // skip if not authenticated â€” prevents 401 on page load race
@@ -6061,7 +6088,7 @@ async function loadNasDevices(){
   if(!el) return;
   _loadNasDevicesPromise = (async()=>{
   try{
-    const r = await api('GET', '/nas/devices');
+    const r = await _getNasDevicesCached();
     const devs = r.devices || [];
     if(!devs.length){
       el.innerHTML = '<div class="sb-grandchild" style="color:var(--mute);cursor:default;">No agents connected</div>';
@@ -9297,8 +9324,8 @@ function dbUpdateDevicePanel(){
     var agentPbar = document.getElementById('db-agent-pbar');
     var badge = document.getElementById('db-dev-badge');
 
-    // Use the NAS devices from sidebar (loadNasDevices populates them)
-    api('GET', '/nas/devices').then(function(r){
+    // Use cached NAS devices so dashboard refreshes do not repeatedly hit the API tunnel.
+    _getNasDevicesCached().then(function(r){
       var devs = (r && r.devices) || [];
       var online = devs.filter(function(d){ return d.is_online; });
       if(badge) badge.textContent = online.length + ' Online';
@@ -9427,7 +9454,7 @@ async function dbWakePrimaryDevice(){
       btn.disabled = true;
       btn.textContent = 'Sending...';
     }
-    var r = await api('GET', '/nas/devices');
+    var r = await _getNasDevicesCached({wake:true, force:true});
     var devs = (r && r.devices) || [];
     var target = devs.find(function(d){ return d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; })
       || devs.find(function(d){ return !d.is_online && d.wake && d.wake.ui && d.wake.ui.show_button; })
