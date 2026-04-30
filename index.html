@@ -5018,8 +5018,8 @@ const _NAS_RELAY_CHUNK_SIZE      = 8 * 1024 * 1024;   // 8 MB per chunk â€”
 const _NAS_RELAY_PARALLEL        = 1;                  // keep relay sends serial for now â€” safest over one WS tunnel
 const _NAS_SESSION_DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 const _NAS_SESSION_DEFAULT_PARALLEL   = 3;
-const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 4 * 1024 * 1024; // public backend tunnel: balanced WS frame size for speed/stability
-const _NAS_PUBLIC_INGRESS_PARALLEL    = 2;               // avoid old 8MB x3 pressure while keeping uploads usable
+const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 1 * 1024 * 1024; // public backend tunnel: keep WS frames small and stable
+const _NAS_PUBLIC_INGRESS_PARALLEL    = 1;               // one backend tunnel cannot safely carry parallel upload frames
 
 function _nasRelayChunkTimeoutMs(byteLength){
   // Scale timeout with chunk size so slower uplinks and low-spec NAS agents do
