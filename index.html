@@ -4956,12 +4956,6 @@ async function _probeNasReachability(nasUrl){
 async function _resolveStorageTarget(fileSize){
   if(S._forceCloud) return 'cloud';
 
-  // If a previous upload already found NAS unreachable, route whole batch to cloud
-  const now = Date.now();
-  if(_nasReach === false && now - _nasReachTs < _NAS_REACH_TTL){
-    return 'cloud';
-  }
-
   const stats = await _getNasStats();
   if(!stats || !stats.online) return 'cloud';
 
@@ -5587,9 +5581,9 @@ async function _uploadNasDirect(item, folderId){
     if(isNetworkErr || isServerErr){
       _nasStats   = null;
       _nasStatsTs = 0;
-      _nasReach   = false;
-      _nasReachTs = Date.now();
-      console.warn('[MPD] NAS unreachable â€” falling back to cloud for this batch');
+      _nasReach   = null;
+      _nasReachTs = 0;
+      console.warn('[MPD] NAS unreachable â€” falling back to cloud for this file');
     } else {
       console.warn('[MPD] NAS upload failed, falling back to cloud:', e.message);
     }
