@@ -10743,7 +10743,7 @@ function _usbBackupEnsureModal(){
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Destination</div><div id="usb-backup-device" class="text-sm font-semibold text-gray-800 truncate">Not selected</div></div>
             <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Required size</div><div id="usb-backup-required" class="text-sm font-semibold text-gray-800">-</div></div>
-            <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Available space</div><div id="usb-backup-available" class="text-sm font-semibold text-gray-800">Permission required</div></div>
+            <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">USB free space</div><div id="usb-backup-available" class="text-sm font-semibold text-gray-800">Permission required</div></div>
           </div>
           <div class="rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800 text-sm px-3 py-2 mb-4">Do not remove the USB device. Keep this app open until backup completes.</div>
           <div class="flex flex-wrap gap-2 justify-end">
@@ -10874,8 +10874,7 @@ async function _usbBackupBuildManifest(st){
 }
 
 async function _usbBackupEstimateSpace(st){
-  st.availableLabel='Browser does not expose USB free space';
-  if(navigator.storage?.estimate){try{const est=await navigator.storage.estimate();const free=Math.max(0,Number(est.quota||0)-Number(est.usage||0));if(free>0)st.availableLabel=`Browser writable estimate: ${fmtSize(free)}`;}catch(_){}}
+  st.availableLabel='Not exposed by browser';
 }
 async function _usbBackupGetOrCreateDir(parent,name){return parent.getDirectoryHandle(_usbBackupSanitizeName(name,'folder'),{create:true});}
 async function _usbBackupGetLeafDir(root,parts){let dir=root;for(const p of parts.slice(0,-1))dir=await _usbBackupGetOrCreateDir(dir,p);return dir;}
