@@ -6183,10 +6183,10 @@ async function loadNasDevices(){
     }
 
     el.innerHTML = devs.map(d => {
-      const online   = d.is_online;
       const tunneled = Object.prototype.hasOwnProperty.call(tunnelMap, d.machine_id)
         ? !!tunnelMap[d.machine_id]
         : !!d.tunnel_connected;
+      const online = _nasDeviceIsLive(d) || tunneled;
       const dot = online
         ? '<span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;margin-right:1px"></span>'
         : '<span style="width:7px;height:7px;border-radius:50%;background:#d1d5db;display:inline-block;flex-shrink:0;margin-right:1px"></span>';
@@ -9359,6 +9359,10 @@ function dbRestoreUploadDest(){
   }catch(e){}
 }
 
+function _nasDeviceIsLive(d){
+  return !!(d && (d.is_online || d.tunnel_connected || d.direct_transfer_ready));
+}
+
 // â”€â”€ Load device info from existing API data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let _dbDevicePanelTs = 0;
 let _dbDevicePanelPromise = null;
@@ -9386,7 +9390,7 @@ function dbUpdateDevicePanel(){
     // Use cached NAS devices so dashboard refreshes do not repeatedly hit the API tunnel.
     _getNasDevicesCached().then(function(r){
       var devs = (r && r.devices) || [];
-      var online = devs.filter(function(d){ return d.is_online; });
+      var online = devs.filter(_nasDeviceIsLive);
       if(badge) badge.textContent = online.length + ' Online';
 
       // Use the first ONLINE device as primary â€” never fall back to an offline one
