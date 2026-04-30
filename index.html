@@ -6691,6 +6691,7 @@ async function _pickSaveDir(){
 const _NAS_DL_RELAY_CHUNK_THRESHOLD = 5 * 1024 * 1024;   // 5 MB â€” use chunked above this
 const _NAS_DL_RELAY_CHUNK_SIZE      = 5 * 1024 * 1024;   // 5 MB per slice
 const _NAS_DL_STREAM_WRITE_BUFFER   = 4 * 1024 * 1024;   // 4 MB batched filesystem writes
+const _NAS_PUBLIC_TRANSFER_WARN_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 // Legacy browser (no FileSystem API) safety cap â€” above this we refuse to accumulate chunks
 // in RAM and instead redirect to a native browser download URL.
 // 200 MB accumulated = 400 MB peak (merge step), still survivable on 2 GB RAM tabs.
@@ -6702,6 +6703,40 @@ function _nasDownloadViaLabel(via){
   if(via === 'agent_https_direct') return 'secure public transfer';
   if(via === 'direct' || via === 'lan') return 'direct LAN';
   return via || 'direct transfer';
+}
+
+function _canUseBrowserLanNasUrl(url){
+  try{
+    const u = new URL(url);
+    if(u.protocol !== 'http:') return u.protocol === 'https:';
+    const host = (u.hostname || '').toLowerCase();
+    const pageHost = (location.hostname || '').toLowerCase();
+    return location.protocol === 'http:' ||
+      pageHost === 'localhost' ||
+      pageHost === '127.0.0.1' ||
+      host === 'localhost' ||
+      host === '127.0.0.1';
+  }catch(_){
+    return false;
+  }
+}
+
+async function _selectNasDownloadTransport(info, item){
+  const out = {...info};
+  if(out.via === 'agent_https_direct' && out.lan_download_url && _canUseBrowserLanNasUrl(out.lan_download_url)){
+    out.download_url = out.lan_download_url;
+    out.via = 'direct';
+    out.public_transfer = false;
+    return out;
+  }
+  const size = Number(out.size || item.size || 0);
+  if(out.via === 'agent_https_direct' && size >= _NAS_PUBLIC_TRANSFER_WARN_THRESHOLD){
+    const msg = `This NAS file is ${fmtSize(size)} and will use the secure public transfer tunnel, not true LAN. That can be slower and shares the NAS owner's internet upload capacity. Continue?`;
+    if(!await confirmDialog(msg, {confirmText:'Continue', cancelText:'Cancel'})){
+      throw new Error('Download cancelled');
+    }
+  }
+  return out;
 }
 
 async function _downloadNasRelayChunked(item, dlUrl, dlHeaders, fileSize, writable, onProgress){
@@ -6976,8 +7011,9 @@ async function runDownloads(dirHandle){
       // Large relay files (>= 10 MB) use 2 MB chunked download to cap RAM at ~4 MB peak.
       let _dlUrl, _dlHeaders;
       if(item._nas){
-        const _info = await api('GET', `/nas/download-url/${item.id}`);
+        let _info = await api('GET', `/nas/download-url/${item.id}`);
         if(!_info || !_info.download_url) throw new Error('Could not get NAS download URL');
+        _info = await _selectNasDownloadTransport(_info, item);
         _dlUrl = _info.download_url;
         const _isRelay = _info.via === 'relay';
         const _viaLabel = _nasDownloadViaLabel(_info.via);
