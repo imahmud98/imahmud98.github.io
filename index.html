@@ -5033,7 +5033,8 @@ function _normalizeNasDirectSession(session){
   if(!_canUseNasDirectSession(session)) return session;
   const direct = Object.assign({}, session.direct || {});
   const machineId = String(session.machine_id || '');
-  if(location.protocol === 'https:' && String(direct.base_url || direct.upload_chunk_url || '').startsWith('http:') && machineId){
+  const directUrl = String(direct.base_url || direct.upload_chunk_url || '');
+  if(location.protocol === 'https:' && machineId && _shouldUseNasPublicIngress(directUrl)){
     const base = `${API}/nas/transfer/public/${encodeURIComponent(machineId)}`;
     direct.base_url = base;
     direct.upload_chunk_url = `${base}/upload-chunk`;
@@ -5043,6 +5044,18 @@ function _normalizeNasDirectSession(session){
     direct.access_mode = 'public_ingress_client';
   }
   return Object.assign({}, session, { direct });
+}
+
+function _shouldUseNasPublicIngress(url){
+  try{
+    const parsed = new URL(url, location.href);
+    const host = parsed.hostname.toLowerCase();
+    return parsed.protocol === 'http:' ||
+      host.endsWith('-transfer.mypocketdrive.online') ||
+      host.endsWith('.trycloudflare.com');
+  }catch{
+    return String(url || '').startsWith('http:');
+  }
 }
 
 function _isPublicNasTransferUrl(url){
