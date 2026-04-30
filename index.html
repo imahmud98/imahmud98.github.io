@@ -2047,6 +2047,9 @@ async function api(method,path,body=null,isForm=false,onProgress=null){
 
   if(res.status===401){
     const refreshed=await _silentRefresh();
+    if(!refreshed && _lastSilentRefreshFailedNetwork){
+      throw new Error('Cannot reach server. Please check your connection and retry.');
+    }
     if(refreshed){
       // Retry once with new token
       if(S.token)h['Authorization']=`Bearer ${S.token}`;
@@ -2057,7 +2060,9 @@ async function api(method,path,body=null,isForm=false,onProgress=null){
         if(ct2.includes('application/json')){const d2=await res2.json();if(!res2.ok)throw new Error(d2.detail||JSON.stringify(d2));return d2;}
         if(!res2.ok)throw new Error(`HTTP ${res2.status}`);
         return res2;
-      }catch{logout();return null;}
+      }catch(e){
+        throw new Error('Cannot reach server. Please check your connection and retry.');
+      }
     }
     logout();return null;
   }
@@ -2228,11 +2233,13 @@ function logout(){
 // This prevents concurrent refreshes that would trigger the server's
 // "refresh token reuse" security detection, which revokes ALL tokens.
 let _silentRefreshInFlight = null;
+let _lastSilentRefreshFailedNetwork = false;
 async function _silentRefresh(){
   // If a refresh is already running, return the same promise â€” never fire two.
   if(_silentRefreshInFlight) return _silentRefreshInFlight;
   _silentRefreshInFlight = (async()=>{
     try{
+      _lastSilentRefreshFailedNetwork = false;
       const refreshToken=_getRefreshToken();
       if(!refreshToken)return false;
       const r=await fetch(API+'/auth/refresh',{
@@ -2248,7 +2255,10 @@ async function _silentRefresh(){
       _setAccessToken(S.token);
       if(d.refresh_token)_setRefreshToken(d.refresh_token);
       return true;
-    }catch{return false;}
+    }catch{
+      _lastSilentRefreshFailedNetwork = true;
+      return false;
+    }
   })().finally(()=>{ _silentRefreshInFlight = null; });
   return _silentRefreshInFlight;
 }
@@ -6053,6 +6063,8 @@ let _loadNasDevicesPromise = null;
 let _nasDevicesCache = null;
 let _nasDevicesTs = 0;
 let _nasDevicesPromise = null;
+let _nasDevicesBackoffUntil = 0;
+let _nasDevicesFailCount = 0;
 
 async function _getNasDevicesCached(opts){
   opts = opts || {};
@@ -6062,14 +6074,27 @@ async function _getNasDevicesCached(opts){
   if(!wake && !force && _nasDevicesCache && now - _nasDevicesTs < 30000){
     return _nasDevicesCache;
   }
+  if(!wake && !force && now < _nasDevicesBackoffUntil){
+    return _nasDevicesCache || {devices: []};
+  }
   if(!wake && _nasDevicesPromise) return _nasDevicesPromise;
-  const loader = api('GET', wake ? '/nas/devices?wake=1' : '/nas/devices?wake=0')
+  const loader = _ensureFreshToken().catch(()=>false).then(() =>
+    api('GET', wake ? '/nas/devices?wake=1' : '/nas/devices?wake=0')
+  )
     .then(function(r){
+      _nasDevicesFailCount = 0;
+      _nasDevicesBackoffUntil = 0;
       if(!wake){
         _nasDevicesCache = r || {devices: []};
         _nasDevicesTs = Date.now();
       }
       return r || {devices: []};
+    })
+    .catch(function(e){
+      if(wake) throw e;
+      _nasDevicesFailCount = Math.min(_nasDevicesFailCount + 1, 6);
+      _nasDevicesBackoffUntil = Date.now() + Math.min(120000, 5000 * Math.pow(2, _nasDevicesFailCount - 1));
+      return _nasDevicesCache || {devices: []};
     });
   if(wake) return loader;
   _nasDevicesPromise = loader.finally(function(){ _nasDevicesPromise = null; });
