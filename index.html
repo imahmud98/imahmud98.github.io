@@ -5122,10 +5122,10 @@ function _isNasTransferTunnelUrl(url){
 }
 
 async function _waitForNasTransferSession(sessionId){
-  for(let attempt = 0; attempt < 20; attempt++){
+  for(let attempt = 0; attempt < 60; attempt++){
     const status = await api('GET', `/nas/transfer/session/${sessionId}`);
     if(status && ['completed','failed','aborted','expired'].includes(status.status)) return status;
-    await _sleep(1500);
+    await _sleep(attempt < 20 ? 1500 : 2500);
   }
   throw new Error('NAS transfer finalization timed out');
 }
