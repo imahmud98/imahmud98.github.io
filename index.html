@@ -5123,11 +5123,75 @@ function _isNasTransferTunnelUrl(url){
 
 async function _waitForNasTransferSession(sessionId){
   for(let attempt = 0; attempt < 60; attempt++){
-    const status = await api('GET', `/nas/transfer/session/${sessionId}`);
+    const status = await _getNasTransferSessionStatus(sessionId);
     if(status && ['completed','failed','aborted','expired'].includes(status.status)) return status;
     await _sleep(attempt < 20 ? 1500 : 2500);
   }
   throw new Error('NAS transfer finalization timed out');
+}
+
+async function _getNasTransferSessionStatus(sessionId){
+  const url = `${API}/nas/transfer/session/${encodeURIComponent(sessionId)}`;
+  let lastErr = null;
+  for(let attempt = 0; attempt < 3; attempt++){
+    try{ await _ensureFreshToken(); }catch(_){}
+    try{
+      const headers = {
+        'ngrok-skip-browser-warning': 'true',
+        'x-requested-with': 'XMLHttpRequest',
+      };
+      if(S.token) headers.Authorization = `Bearer ${S.token}`;
+      const res = await fetch(url, { method: 'GET', headers });
+      if(res.status === 401){
+        await _silentRefresh().catch(()=>false);
+        lastErr = new Error('NAS transfer status auth expired');
+        await _sleep(500 + attempt * 750);
+        continue;
+      }
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(data.detail || `NAS transfer status failed: ${res.status}`);
+      return data;
+    }catch(e){
+      lastErr = e;
+      await _sleep(500 + attempt * 750);
+    }
+  }
+  throw lastErr || new Error('NAS transfer status failed');
+}
+
+async function _postNasTransferSessionComplete(sessionId, payload){
+  const url = `${API}/nas/transfer/session/${encodeURIComponent(sessionId)}/complete`;
+  let lastErr = null;
+  for(let attempt = 0; attempt < 3; attempt++){
+    try{ await _ensureFreshToken(); }catch(_){}
+    try{
+      const headers = {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        'x-requested-with': 'XMLHttpRequest',
+      };
+      if(S.token) headers.Authorization = `Bearer ${S.token}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload || {}),
+      });
+      if(res.status === 401){
+        await _silentRefresh().catch(()=>false);
+        lastErr = new Error('NAS transfer complete auth expired');
+        await _sleep(500 + attempt * 750);
+        continue;
+      }
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json().catch(()=>({})) : {};
+      if(!res.ok) throw new Error(data.detail || `NAS transfer complete failed: ${res.status}`);
+      return data || {};
+    }catch(e){
+      lastErr = e;
+      await _sleep(500 + attempt * 750);
+    }
+  }
+  throw lastErr || new Error('NAS transfer complete failed');
 }
 
 async function _uploadNasDirectSession(item, session){
@@ -5284,6 +5348,8 @@ async function _uploadNasDirectSession(item, session){
   item.progress=0.995;
   renderUploadQ();
 
+  await _ensureFreshToken().catch(()=>{});
+
   await _sendDirectControl(session.direct.complete_url, {
     filename: session.filename || file.name,
     folder_id: session.folder_id || 'root',
@@ -5294,16 +5360,29 @@ async function _uploadNasDirectSession(item, session){
     final_checksum: '',
   });
 
-  await api('POST', `/nas/transfer/session/${session.session_id}/complete`, {
-    total_chunks: totalChunks,
-    bytes_sent: totalSize,
-    final_checksum: '',
-  });
+  try{
+    await _postNasTransferSessionComplete(session.session_id, {
+      total_chunks: totalChunks,
+      bytes_sent: totalSize,
+      final_checksum: '',
+    });
+  }catch(e){
+    console.warn('[MPD] NAS transfer client-complete failed; checking agent-completed status:', e.message);
+  }
+
   const finalStatus = await _waitForNasTransferSession(session.session_id);
   if(finalStatus.status !== 'completed'){
-    throw new Error(finalStatus.error_detail || `NAS transfer ended with status ${finalStatus.status}`);
+    await _postNasTransferSessionComplete(session.session_id, {
+      total_chunks: totalChunks,
+      bytes_sent: totalSize,
+      final_checksum: '',
+    });
   }
-  return finalStatus;
+  const verifiedStatus = finalStatus.status === 'completed' ? finalStatus : await _waitForNasTransferSession(session.session_id);
+  if(verifiedStatus.status !== 'completed'){
+    throw new Error(verifiedStatus.error_detail || `NAS transfer ended with status ${verifiedStatus.status}`);
+  }
+  return verifiedStatus;
 }
 // Direct LAN also gets chunked above this threshold to cap browser RAM usage
 // and enable per-chunk retries on flaky local networks / old PCs.
