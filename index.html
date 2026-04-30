@@ -10720,13 +10720,257 @@ function sbToggleGC(id, e){
 }
 
 // â”€â”€ USB Backup info toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+let _usbBackupState = null;
+
+function _usbBackupEnsureModal(){
+  let modal=document.getElementById('usb-backup-modal');
+  if(modal)return modal;
+  modal=document.createElement('div');
+  modal.id='usb-backup-modal';
+  modal.className='modal-wrap hidden';
+  modal.innerHTML=`
+    <div class="modal-box" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-hd flex-shrink-0">
+        <div>
+          <span class="modal-title">Backup to USB device</span>
+          <p id="usb-backup-subtitle" class="text-xs mt-0.5" style="color:var(--mute)">Choose a removable drive or folder and keep the app open.</p>
+        </div>
+        <button data-click="usbBackupClose()" class="modal-close">x</button>
+      </div>
+      <div class="px-5 py-4 overflow-y-auto flex-1">
+        <div id="usb-backup-alert" class="hidden text-sm rounded-lg px-3 py-2 mb-3"></div>
+        <div id="usb-backup-preflight">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Destination</div><div id="usb-backup-device" class="text-sm font-semibold text-gray-800 truncate">Not selected</div></div>
+            <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Required size</div><div id="usb-backup-required" class="text-sm font-semibold text-gray-800">-</div></div>
+            <div class="rounded-lg border border-gray-200 p-3"><div class="text-xs text-gray-500">Available space</div><div id="usb-backup-available" class="text-sm font-semibold text-gray-800">Permission required</div></div>
+          </div>
+          <div class="rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800 text-sm px-3 py-2 mb-4">Do not remove the USB device. Keep this app open until backup completes.</div>
+          <div class="flex flex-wrap gap-2 justify-end">
+            <button id="usb-backup-pick-btn" data-click="usbBackupPickAndScan()" class="btn-secondary">Choose USB folder</button>
+            <button id="usb-backup-start-btn" data-click="usbBackupStart()" class="btn-primary" disabled>Start backup</button>
+          </div>
+        </div>
+        <div id="usb-backup-running" class="hidden">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div><div id="usb-backup-current" class="text-sm font-semibold text-gray-800 truncate">Preparing...</div><div id="usb-backup-stats" class="text-xs text-gray-500 mt-1">0 files completed</div></div>
+            <div class="flex gap-2">
+              <button id="usb-backup-pause-btn" data-click="usbBackupPause()" class="btn-secondary text-xs py-1 px-3">Pause</button>
+              <button id="usb-backup-resume-btn" data-click="usbBackupResume()" class="btn-secondary text-xs py-1 px-3 hidden">Resume</button>
+              <button id="usb-backup-cancel-btn" data-click="usbBackupCancel()" class="btn-secondary text-xs py-1 px-3">Cancel</button>
+              <button id="usb-backup-retry-btn" data-click="usbBackupRetryFailed()" class="btn-primary text-xs py-1 px-3 hidden">Retry failed</button>
+            </div>
+          </div>
+          <div class="prog-bar w-full mb-3" style="height:8px"><div id="usb-backup-progress-fill" class="prog-fill" style="width:0%"></div></div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-4">
+            <div class="rounded-lg bg-gray-50 p-2"><div class="text-gray-500">Speed</div><div id="usb-backup-speed" class="font-semibold">-</div></div>
+            <div class="rounded-lg bg-gray-50 p-2"><div class="text-gray-500">ETA</div><div id="usb-backup-eta" class="font-semibold">-</div></div>
+            <div class="rounded-lg bg-gray-50 p-2"><div class="text-gray-500">Failed</div><div id="usb-backup-failed" class="font-semibold">0</div></div>
+            <div class="rounded-lg bg-gray-50 p-2"><div class="text-gray-500">Skipped</div><div id="usb-backup-skipped" class="font-semibold">0</div></div>
+          </div>
+          <div id="usb-backup-log" class="rounded-lg border border-gray-200 bg-white max-h-48 overflow-y-auto text-xs divide-y divide-gray-100"></div>
+          <div id="usb-backup-report" class="hidden mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
+
 function sbShowUsbInfo(){
-  // USB backup feature â€” coming soon. Show a user-friendly notice.
-  if(typeof toast === 'function'){
-    toast('USB Backup coming soon â€” connect a USB drive and approve access when prompted.','info');
-  } else {
-    alert('USB Backup: Connect a USB drive. You will be prompted for permission before any files are backed up.');
+  _usbBackupEnsureModal();
+  _usbBackupState={dirHandle:null,backupRoot:null,cloudRoot:null,nasRoot:null,entries:[],failed:[],skipped:[],retryEntries:[],completed:0,bytesDone:0,totalBytes:0,startedAt:null,endedAt:null,destinationName:'',running:false,paused:false,cancelled:false,lastBytes:0,lastTick:Date.now(),speed:0,spaceBlocked:false};
+  _usbBackupRenderPreflight();
+  showModal('usb-backup-modal');
+}
+
+function usbBackupClose(){
+  if(_usbBackupState?.running){toast('Cancel or finish the backup before closing this window.','warn');return;}
+  hideModal('usb-backup-modal');
+}
+
+function _usbBackupAlert(msg,type='info'){
+  const el=document.getElementById('usb-backup-alert');if(!el)return;
+  const cls={info:'bg-teal-50 text-teal-800 border border-teal-100',warn:'bg-yellow-50 text-yellow-800 border border-yellow-200',error:'bg-red-50 text-red-700 border border-red-200',success:'bg-green-50 text-green-700 border border-green-200'};
+  el.className='text-sm rounded-lg px-3 py-2 mb-3 '+(cls[type]||cls.info);
+  el.textContent=msg;el.classList.remove('hidden');
+}
+
+function _usbBackupSanitizeName(name,fallback='item'){
+  const raw=String(name||'').normalize('NFKC').split(/[\/\\]+/).filter(Boolean).pop()||'';
+  let s=raw.replace(/[\x00-\x1f\x80-\x9f]/g,'').replace(/[<>:"|?*]+/g,' ').replace(/\s+/g,' ').trim();
+  s=s.replace(/^\.+/,'').replace(/[. ]+$/,'');
+  if(!s||s==='..'||s==='.')s=fallback;
+  if(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(s))s='_'+s;
+  return s.slice(0,120)||fallback;
+}
+function _usbBackupSafeParts(parts){return(parts||[]).map((p,i)=>_usbBackupSanitizeName(p,i===parts.length-1?'file':'folder'));}
+function _usbBackupTimestamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');return`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;}
+
+function _usbBackupRenderPreflight(){
+  const st=_usbBackupState||{};
+  document.getElementById('usb-backup-preflight')?.classList.remove('hidden');
+  document.getElementById('usb-backup-running')?.classList.add('hidden');
+  const dev=document.getElementById('usb-backup-device'),req=document.getElementById('usb-backup-required'),av=document.getElementById('usb-backup-available'),start=document.getElementById('usb-backup-start-btn');
+  if(dev)dev.textContent=st.destinationName||'Not selected';
+  if(req)req.textContent=st.entries?.length?`${fmtSize(st.totalBytes)} across ${st.entries.length} files`:'-';
+  if(av)av.textContent=st.availableLabel||'Permission required';
+  if(start)start.disabled=!(st.dirHandle&&st.entries?.length&&!st.spaceBlocked);
+}
+function _usbBackupSetRunningUi(running){document.getElementById('usb-backup-preflight')?.classList.toggle('hidden',running);document.getElementById('usb-backup-running')?.classList.toggle('hidden',!running);}
+
+async function _usbBackupRequireAuth(){
+  if(!S.token&&!await _restoreSessionIfPossible())throw new Error('Please sign in before starting USB backup.');
+  if(!await _ensureFreshToken().catch(()=>false))throw new Error('Session expired. Please sign in again.');
+  if(!await api('GET','/auth/me'))throw new Error('Could not verify active session.');
+  if(!S._password){
+    const ok=await ensureEncryptionUnlocked('confirm your identity and back up encrypted files');
+    if(!ok)throw new Error('Authentication required before USB backup.');
+  }else{
+    await api('POST','/auth/unlock-encryption',{password:S._password});
   }
+  return true;
+}
+
+async function usbBackupPickAndScan(){
+  const st=_usbBackupState||{};
+  try{
+    if(!window.showDirectoryPicker){_usbBackupAlert('This browser cannot write securely to a USB folder. Use Chrome or Edge on desktop/Android, or use the native app on unsupported iOS/Safari browsers.','error');return;}
+    // Pick the destination while the click gesture is still active. Re-auth runs
+    // immediately after permission and again before Start backup.
+    const dir=await window.showDirectoryPicker({mode:'readwrite'});
+    const perm=await dir.requestPermission({mode:'readwrite'});
+    if(perm!=='granted'){_usbBackupAlert('Permission denied. Backup stopped before reading or writing any files.','error');return;}
+    await _usbBackupRequireAuth();
+    Object.assign(st,{dirHandle:dir,destinationName:dir.name||'Selected device',entries:[],failed:[],skipped:[],retryEntries:[],completed:0,bytesDone:0,totalBytes:0,spaceBlocked:false});
+    _usbBackupState=st;
+    _usbBackupAlert('Scanning My Files. No data is written until you press Start backup.','info');
+    await _usbBackupBuildManifest(st);
+    await _usbBackupEstimateSpace(st);
+    _usbBackupRenderPreflight();
+    _usbBackupAlert(`Ready to back up ${st.entries.length} files to ${st.destinationName}.`,'success');
+  }catch(e){if(e?.name!=='AbortError')_usbBackupAlert(e.message||'USB backup preparation failed.','error');}
+}
+
+async function _usbBackupBuildManifest(st){
+  const seen=new Set();
+  async function foldersFor(parentId){const path=parentId==null?'/folders':`/folders?parent_id=${encodeURIComponent(parentId)}`;const r=await api('GET',path).catch(()=>({folders:[]}));return Array.isArray(r)?r:(r.folders||[]);}
+  async function addCloud(folderId,parts){
+    const path=folderId==null?'/files':`/files?folder_id=${encodeURIComponent(folderId)}`;
+    const r=await api('GET',path).catch(()=>({files:[]}));
+    for(const f of(r.files||[])){const id=String(f.id||'');if(!id||seen.has('cloud:'+id))continue;seen.add('cloud:'+id);const name=f.filename||f.name||'file';const size=Number(f.size??f.plaintext_size??f.stored_plaintext_size??0)||0;st.entries.push({source:'Cloud',id,name,size,storage_version:f.storage_version||'',pathParts:_usbBackupSafeParts([...parts,name])});st.totalBytes+=size;}
+    for(const folder of await foldersFor(folderId))await addCloud(folder.id,[...parts,folder.name||'Folder']);
+  }
+  async function addNas(folderId,parts){
+    const q=folderId==null?'root':folderId;let r;
+    try{r=await api('GET',`/nas/files?folder_id=${encodeURIComponent(q)}`);}catch(e){st.skipped.push({source:'NAS',path:parts.join('/')||'root',reason:'Unavailable (Device Offline)'});return;}
+    for(const f of(r.files||[])){const id=String(f.file_id||f.id||'');if(!id||seen.has('nas:'+id))continue;seen.add('nas:'+id);const name=f.filename||f.name||'file';const size=Number(f.size??f.file_size??0)||0;st.entries.push({source:'NAS',id,name,size,pathParts:_usbBackupSafeParts([...parts,name])});st.totalBytes+=size;}
+    for(const folder of await foldersFor(folderId))await addNas(folder.id,[...parts,folder.name||'Folder']);
+  }
+  await addCloud(null,[]);
+  let nasLive=false;
+  try{const d=await api('GET','/nas/devices?wake=0');nasLive=(d.devices||[]).some(x=>typeof _nasDeviceIsLive==='function'?_nasDeviceIsLive(x):(x.is_online||x.tunnel_connected||x.direct_transfer_ready));}catch(_){}
+  if(nasLive)await addNas(null,[]);else st.skipped.push({source:'NAS',path:'All NAS files',reason:'Unavailable (Device Offline)'});
+}
+
+async function _usbBackupEstimateSpace(st){
+  st.availableLabel='Browser does not expose USB free space';
+  if(navigator.storage?.estimate){try{const est=await navigator.storage.estimate();const free=Math.max(0,Number(est.quota||0)-Number(est.usage||0));if(free>0)st.availableLabel=`Browser writable estimate: ${fmtSize(free)}`;}catch(_){}}
+}
+async function _usbBackupGetOrCreateDir(parent,name){return parent.getDirectoryHandle(_usbBackupSanitizeName(name,'folder'),{create:true});}
+async function _usbBackupGetLeafDir(root,parts){let dir=root;for(const p of parts.slice(0,-1))dir=await _usbBackupGetOrCreateDir(dir,p);return dir;}
+async function _usbBackupUniqueName(dir,name){const base=_usbBackupSanitizeName(name,'file'),dot=base.lastIndexOf('.'),stem=dot>0?base.slice(0,dot):base,ext=dot>0?base.slice(dot):'';for(let i=0;i<1000;i++){const c=i?`${stem} (${i})${ext}`:base;try{await dir.getFileHandle(c,{create:false});}catch(_){return c;}}return`${stem}-${Date.now()}${ext}`;}
+async function _usbBackupHashFile(handle){
+  const file=await handle.getFile();
+  if(file.size>256*1024*1024)return null; // WebCrypto has no streaming hash; avoid large RAM spikes.
+  const reader=file.stream().getReader(),chunks=[];let total=0;
+  while(true){const{done,value}=await reader.read();if(done)break;chunks.push(value);total+=value.byteLength;}
+  const merged=new Uint8Array(total);let off=0;
+  for(const c of chunks){merged.set(c,off);off+=c.byteLength;}
+  const digest=await crypto.subtle.digest('SHA-256',merged);
+  return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function _usbBackupCopyFile(srcHandle,destHandle){const src=await srcHandle.getFile(),reader=src.stream().getReader(),w=await destHandle.createWritable();try{while(true){const{done,value}=await reader.read();if(done)break;await w.write(value);}await w.close();}catch(e){await w.abort().catch(()=>{});throw e;}}
+async function _usbBackupDeleteFile(dir,name){try{await dir.removeEntry(name);}catch(_){}}
+
+function _usbBackupLog(entry,status,reason=''){const el=document.getElementById('usb-backup-log');if(!el)return;const color=status==='done'?'text-green-700':status==='failed'?'text-red-600':status==='skipped'?'text-yellow-700':'text-gray-600';const row=document.createElement('div');row.className='px-3 py-2 flex items-start gap-2';row.innerHTML=`<span class="${color} font-semibold">${esc(status)}</span><span class="flex-1 truncate">${esc(entry.source+'/'+entry.pathParts.join('/'))}</span>${reason?`<span class="text-gray-500">${esc(reason)}</span>`:''}`;el.appendChild(row);el.scrollTop=el.scrollHeight;}
+function _usbBackupUpdateProgress(entry){const st=_usbBackupState;if(!st)return;const now=Date.now();if(now-st.lastTick>900){st.speed=(st.bytesDone-st.lastBytes)/((now-st.lastTick)/1000);st.lastBytes=st.bytesDone;st.lastTick=now;}const pct=st.totalBytes?Math.min(st.bytesDone/st.totalBytes,1):0,left=Math.max(0,st.totalBytes-st.bytesDone),eta=st.speed>0?Math.round(left/st.speed):0;const fill=document.getElementById('usb-backup-progress-fill');if(fill)fill.style.width=`${Math.round(pct*100)}%`;const cur=document.getElementById('usb-backup-current');if(cur)cur.textContent=entry?entry.name:'Finishing backup...';const stats=document.getElementById('usb-backup-stats');if(stats)stats.textContent=`${st.completed}/${st.entries.length} files completed - ${fmtSize(st.bytesDone)} of ${fmtSize(st.totalBytes)}`;const sp=document.getElementById('usb-backup-speed');if(sp)sp.textContent=st.speed?`${fmtSize(st.speed)}/s`:'-';const etaEl=document.getElementById('usb-backup-eta');if(etaEl)etaEl.textContent=eta?`${Math.floor(eta/60)}m ${eta%60}s`:'-';const f=document.getElementById('usb-backup-failed');if(f)f.textContent=String(st.failed.length);const sk=document.getElementById('usb-backup-skipped');if(sk)sk.textContent=String(st.skipped.length);}
+async function _usbBackupWaitIfPaused(){while(_usbBackupState?.paused&&!_usbBackupState?.cancelled)await new Promise(r=>setTimeout(r,350));if(_usbBackupState?.cancelled)throw new Error('Backup cancelled');}
+
+async function _usbBackupDownloadCloudToTemp(entry,dir,tempName,onProgress){
+  const item={id:entry.id,name:tempName,size:entry.size,storage_version:entry.storage_version||'',status:'downloading',progress:0};
+  if(item.storage_version==='client_e2ee_s3'){await _downloadDirectCloudE2EE(item,dir);onProgress(1);return;}
+  const directInfo=await api('GET',`/files/direct-upload/${entry.id}/download-url`).catch(()=>null);
+  if(directInfo?.storage_version==='client_e2ee_s3'){item.storage_version='client_e2ee_s3';await _downloadDirectCloudE2EE(item,dir,{info:directInfo});onProgress(1);return;}
+  const url=`${API}/files/${entry.id}/download`,headers={'Authorization':`Bearer ${S.token}`,'ngrok-skip-browser-warning':'true'},handle=await dir.getFileHandle(tempName,{create:true}),w=await handle.createWritable();
+  try{if(entry.size>_NAS_DL_RELAY_CHUNK_THRESHOLD)await _downloadNasDirectChunked(item,url,headers,entry.size,w,onProgress);else{const res=await _fetchWithProgress(url,headers,onProgress);const raw=await res.blob().then(b=>b.arrayBuffer());const dec=await _decryptDownloadedBytes(raw);await w.write(dec);}await w.close();}catch(e){await w.abort().catch(()=>{});throw e;}
+}
+
+async function _usbBackupDownloadNasToTemp(entry,dir,tempName,onProgress){
+  const item={id:entry.id,name:tempName,size:entry.size,_nas:true,status:'downloading',progress:0},info=await api('GET',`/nas/download-url/${entry.id}`);
+  if(!info?.download_url)throw new Error('NAS file unavailable');
+  const isRelay=info.via==='relay',headers=isRelay?{'Authorization':`Bearer ${S.token}`,'X-NAS-Token':info.token,'ngrok-skip-browser-warning':'true',...(info.headers||{})}:{'X-NAS-Token':info.token,...(info.headers||{})},size=Number(info.size||entry.size||0),handle=await dir.getFileHandle(tempName,{create:true}),w=await handle.createWritable();
+  try{if(isRelay){if(size>_NAS_DL_RELAY_CHUNK_THRESHOLD)throw new Error('Unavailable (Device Offline or relay cannot stream large file)');await _downloadNasRelayChunked(item,info.download_url,headers,size,w,onProgress);}else if(size>_NAS_DL_RELAY_CHUNK_THRESHOLD)await _downloadNasDirectChunked(item,info.download_url,headers,size,w,onProgress);else{const res=await _fetchWithProgress(info.download_url,headers,onProgress);const raw=await res.blob().then(b=>b.arrayBuffer());const dec=await _decryptDownloadedBytes(raw);await w.write(dec);}await w.close();}catch(e){await w.abort().catch(()=>{});throw e;}
+}
+
+async function _usbBackupOne(entry){
+  const st=_usbBackupState,root=entry.source==='NAS'?st.nasRoot:st.cloudRoot,dir=await _usbBackupGetLeafDir(root,entry.pathParts),finalName=await _usbBackupUniqueName(dir,entry.pathParts[entry.pathParts.length-1]||entry.name),tempName=`.${finalName}.${Date.now()}.mpdpart`;
+  let downloaded=0;
+  await _usbBackupWaitIfPaused();
+  const onProgress=pct=>{const next=Math.floor((entry.size||0)*Math.max(0,Math.min(1,pct||0)));st.bytesDone+=Math.max(0,next-downloaded);downloaded=next;_usbBackupUpdateProgress(entry);};
+  if(entry.source==='NAS')await _usbBackupDownloadNasToTemp(entry,dir,tempName,onProgress);else await _usbBackupDownloadCloudToTemp(entry,dir,tempName,onProgress);
+  const tempHandle=await dir.getFileHandle(tempName,{create:false}),tempFile=await tempHandle.getFile(),tempHash=await _usbBackupHashFile(tempHandle),finalHandle=await dir.getFileHandle(finalName,{create:true});
+  await _usbBackupCopyFile(tempHandle,finalHandle);
+  const finalFile=await finalHandle.getFile(),finalHash=await _usbBackupHashFile(finalHandle);
+  if(tempHash&&finalHash&&tempHash!==finalHash)throw new Error('Checksum mismatch after write');
+  if(tempFile.size!==finalFile.size)throw new Error('Size mismatch after write');
+  await _usbBackupDeleteFile(dir,tempName);
+  if(downloaded<(entry.size||0))st.bytesDone+=(entry.size||0)-downloaded;
+  return{path:[entry.source,...entry.pathParts.slice(0,-1),finalName].join('/'),sha256:finalHash,size:entry.size};
+}
+
+async function _usbBackupWriteReport(st){
+  const report={started_at:st.startedAt,ended_at:st.endedAt,destination:`${st.destinationName}/MyPocketDrive_Backup/${st.timestamp}`,total_files:st.entries.length,successful_files:st.completed,failed_files:st.failed.length,skipped_files:st.skipped.length,total_size_transferred:st.bytesDone,failures:st.failed,skipped:st.skipped,notes:['Cloud encrypted files were decrypted only in this browser session before writing to the selected destination.','Temporary .mpdpart files are removed after final verification when the browser permits cleanup.']};
+  const h=await st.backupRoot.getFileHandle('backup-report.json',{create:true}),w=await h.createWritable();await w.write(JSON.stringify(report,null,2));await w.close();
+  const el=document.getElementById('usb-backup-report');if(el){el.classList.remove('hidden');el.innerHTML=`<div class="font-semibold mb-2">Backup report</div><div>Total: ${report.total_files} files</div><div>Successful: ${report.successful_files}</div><div>Failed: ${report.failed_files}</div><div>Skipped: ${report.skipped_files}</div><div>Transferred: ${fmtSize(report.total_size_transferred)}</div><div>Saved to: ${esc(report.destination)}</div>`;}
+}
+
+async function usbBackupStart(){
+  const st=_usbBackupState;if(!st?.dirHandle||!st.entries.length)return;
+  try{
+    await _usbBackupRequireAuth();
+    Object.assign(st,{running:true,startedAt:new Date().toISOString(),timestamp:_usbBackupTimestamp(),cancelled:false,paused:false,completed:0,failed:[],retryEntries:[],bytesDone:0,lastBytes:0,lastTick:Date.now()});
+    document.getElementById('usb-backup-log').innerHTML='';_usbBackupSetRunningUi(true);
+    const base=await _usbBackupGetOrCreateDir(st.dirHandle,'MyPocketDrive_Backup');st.backupRoot=await _usbBackupGetOrCreateDir(base,st.timestamp);st.cloudRoot=await _usbBackupGetOrCreateDir(st.backupRoot,'Cloud');st.nasRoot=await _usbBackupGetOrCreateDir(st.backupRoot,'NAS');
+    for(const entry of st.entries){
+      await _usbBackupWaitIfPaused();
+      let ok=false,lastErr=null;
+      for(let attempt=1;attempt<=2&&!ok;attempt++){try{await _usbBackupOne(entry);ok=true;}catch(e){lastErr=e;if(st.cancelled)throw e;}}
+      if(ok){st.completed++;_usbBackupLog(entry,'done');}
+      else{const reason=lastErr?.message||'Transfer failed';if(/offline|unavailable/i.test(reason)){st.skipped.push({source:entry.source,path:entry.pathParts.join('/'),reason});_usbBackupLog(entry,'skipped',reason);}else{st.failed.push({source:entry.source,path:entry.pathParts.join('/'),reason});st.retryEntries.push(entry);_usbBackupLog(entry,'failed',reason);}}
+      _usbBackupUpdateProgress(entry);
+    }
+    st.endedAt=new Date().toISOString();st.running=false;await _usbBackupWriteReport(st);_usbBackupUpdateProgress(null);document.getElementById('usb-backup-retry-btn')?.classList.toggle('hidden',!st.retryEntries.length);_usbBackupAlert(`Backup completed. ${st.completed} files saved, ${st.failed.length} failed, ${st.skipped.length} skipped.`,'success');
+  }catch(e){
+    st.running=false;st.endedAt=new Date().toISOString();
+    try{localStorage.setItem('mpd_usb_backup_recovery',JSON.stringify({ended_at:st.endedAt,destination:st.destinationName,completed:st.completed,failed:st.failed,skipped:st.skipped}));}catch(_){}
+    _usbBackupAlert(st.cancelled?'Backup cancelled. Recovery state saved.':((e?.message||'Backup stopped')+'. If the USB device was removed, reconnect it and retry.'),'error');
+  }finally{
+    st.running=false;document.getElementById('usb-backup-pause-btn')?.classList.remove('hidden');document.getElementById('usb-backup-resume-btn')?.classList.add('hidden');
+  }
+}
+
+function usbBackupPause(){if(!_usbBackupState)return;_usbBackupState.paused=true;document.getElementById('usb-backup-pause-btn')?.classList.add('hidden');document.getElementById('usb-backup-resume-btn')?.classList.remove('hidden');_usbBackupAlert('Backup paused. Keep the USB device connected.','warn');}
+function usbBackupResume(){if(!_usbBackupState)return;_usbBackupState.paused=false;document.getElementById('usb-backup-pause-btn')?.classList.remove('hidden');document.getElementById('usb-backup-resume-btn')?.classList.add('hidden');_usbBackupAlert('Backup resumed.','info');}
+function usbBackupCancel(){if(!_usbBackupState)return;_usbBackupState.cancelled=true;_usbBackupState.paused=false;_usbBackupAlert('Cancelling after the current safe write stops...','warn');}
+async function usbBackupRetryFailed(){
+  const st=_usbBackupState;
+  if(!st||st.running||!st.retryEntries?.length)return;
+  st.entries=[...st.retryEntries];
+  st.totalBytes=st.entries.reduce((sum,e)=>sum+(Number(e.size)||0),0);
+  st.failed=[];st.retryEntries=[];st.skipped=[];st.completed=0;st.bytesDone=0;
+  document.getElementById('usb-backup-retry-btn')?.classList.add('hidden');
+  await usbBackupStart();
 }
 </script>
 </body>
