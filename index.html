@@ -5578,7 +5578,7 @@ async function _uploadNasDirect(item, folderId){
     if(_canUseNasDirectSession(transferSession)){
       const directBase = transferSession.direct.base_url || '';
       if(!(location.protocol === 'https:' && directBase.startsWith('http:'))){
-        console.info(`[MPD] NAS upload via direct transfer session:`, directBase);
+        console.info('[MPD] NAS upload via direct transfer session');
         try{
           const finalStatus = await _uploadNasDirectSession(item, transferSession);
           item.status='done'; item.progress=1; renderUploadQ();
@@ -5630,7 +5630,7 @@ async function _uploadNasDirect(item, folderId){
       // relay so we route through the backend tunnel instead of directly to the
       // agent's LAN IP (which the browser would block silently anyway).
       (location.protocol === 'https:' && info.upload_url.startsWith('http:'));
-    console.info(`[MPD] NAS upload via ${isRelay ? 'relay tunnel' : 'direct LAN'}:`, info.upload_url);
+    console.info(`[MPD] NAS upload via ${isRelay ? 'relay tunnel' : 'direct LAN'}`);
 
     // Ensure token is fresh before relay upload (token expires every 15 min)
     if(isRelay) await _ensureFreshToken().catch(()=>{});
@@ -6912,7 +6912,7 @@ async function runDownloads(dirHandle){
         if(!_info || !_info.download_url) throw new Error('Could not get NAS download URL');
         _dlUrl = _info.download_url;
         const _isRelay = _info.via === 'relay';
-        console.info(`[MPD] NAS download via ${_isRelay ? 'relay tunnel' : 'direct LAN'}:`, _dlUrl);
+        console.info(`[MPD] NAS download via ${_isRelay ? 'relay tunnel' : 'direct LAN'}`);
         if(_isRelay){
           await _ensureFreshToken().catch(()=>{});
           _dlHeaders = {
