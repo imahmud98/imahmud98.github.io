@@ -4937,6 +4937,8 @@ let _nasStatsPromise = null;
 let _nasReach    = null;
 let _nasReachTs  = 0;
 const _NAS_REACH_TTL = 15000; // re-probe every 15 s
+const _NAS_LAN_TRANSPORT_FAIL_TTL = 10 * 60 * 1000; // router/DNS-rebind failures should not slow every transfer
+const _nasLanTransportFailures = new Map();
 
 async function _getNasStats(){
   const now = Date.now();
@@ -5094,6 +5096,48 @@ function _normalizeNasDirectSession(session){
     direct.status_url = `${base}/status`;
     direct.access_mode = 'public_ingress_client';
   }
+  return Object.assign({}, session, { direct });
+}
+
+function _nasTransferBaseFromUrl(url){
+  try{
+    const u = new URL(url);
+    let path = (u.pathname || '').replace(/\/$/, '');
+    if(!path.endsWith('/transfer')) path = `${path}/transfer`;
+    u.pathname = path.replace(/\/{2,}/g, '/');
+    u.search = '';
+    u.hash = '';
+    return u.toString().replace(/\/$/, '');
+  }catch(_){
+    return '';
+  }
+}
+
+async function _preferLanHttpsForNasUploadSession(session){
+  if(!_canUseNasDirectSession(session)) return session;
+  const caps = session.direct?.transfer_capabilities || {};
+  const lanUrl = String(caps.lan_https_url || '').trim();
+  if(!caps.lan_https || !caps.lan_https_trusted_by_os || !lanUrl) return session;
+  const base = _nasTransferBaseFromUrl(lanUrl);
+  if(!base || !_canUseBrowserLanNasUrl(base)) return session;
+  const candidate = {
+    id: 'lan_https_upload',
+    via: 'lan_https',
+    url: `${base}/upload-chunk`,
+    base_url: base,
+    ping_path: '/transfer/ping',
+    requires_browser_local_access: true,
+  };
+  if(!(await _probeNasTransport(candidate))) return session;
+  const direct = Object.assign({}, session.direct, {
+    base_url: base,
+    upload_chunk_url: `${base}/upload-chunk`,
+    complete_url: `${base}/complete`,
+    abort_url: `${base}/abort`,
+    status_url: `${base}/status`,
+    access_mode: 'lan_https',
+  });
+  console.info('[MPD] NAS upload using direct LAN HTTPS');
   return Object.assign({}, session, { direct });
 }
 
@@ -5610,7 +5654,8 @@ async function _uploadNasRelayChunked(item, info, folderId){
 async function _uploadNasDirect(item, folderId){
   item.status='uploading'; item.progress=0; renderUploadQ();
   try{
-    const transferSession = _normalizeNasDirectSession(await _requestNasTransferSession(item, folderId));
+    let transferSession = _normalizeNasDirectSession(await _requestNasTransferSession(item, folderId));
+    transferSession = await _preferLanHttpsForNasUploadSession(transferSession);
     if(_canUseNasDirectSession(transferSession)){
       const directBase = transferSession.direct.base_url || '';
       const browserBlocked = _nasUploadBrowserBlocked(transferSession);
@@ -6778,7 +6823,8 @@ function _browserWillBlockLocalNetwork(url){
     const pageHost = (location.hostname || '').toLowerCase();
     if(location.protocol !== 'https:') return false;
     if(pageHost === 'localhost' || pageHost === '127.0.0.1') return false;
-    return _isPrivateLanHost(u.hostname);
+    if(!_isPrivateLanHost(u.hostname)) return false;
+    return u.protocol !== 'https:';
   }catch(_){
     return false;
   }
@@ -6811,17 +6857,74 @@ async function _fetchWithTimeout(url, options={}, timeoutMs=1200){
   }
 }
 
+function _nasTransportCacheKey(candidate){
+  try{
+    return new URL(candidate.base_url || candidate.url).origin;
+  }catch(_){
+    return String(candidate.base_url || candidate.url || '');
+  }
+}
+
+function _nasIsLanTransportCandidate(candidate){
+  return !!candidate && (
+    candidate.via === 'lan_https' ||
+    candidate.id === 'lan_https' ||
+    candidate.via === 'direct' ||
+    candidate.id === 'lan_direct'
+  );
+}
+
+function _nasLanTransportCoolingDown(candidate){
+  if(!_nasIsLanTransportCandidate(candidate)) return false;
+  const key = _nasTransportCacheKey(candidate);
+  const cached = key ? _nasLanTransportFailures.get(key) : null;
+  if(!cached) return false;
+  if(Date.now() < cached.expiresAt) return true;
+  _nasLanTransportFailures.delete(key);
+  return false;
+}
+
+function _rememberNasLanTransportFailure(candidate, reason){
+  if(!_nasIsLanTransportCandidate(candidate)) return;
+  const key = _nasTransportCacheKey(candidate);
+  if(!key) return;
+  const now = Date.now();
+  const previous = _nasLanTransportFailures.get(key);
+  _nasLanTransportFailures.set(key, {
+    expiresAt: now + _NAS_LAN_TRANSPORT_FAIL_TTL,
+    reason: String(reason || 'LAN probe failed').slice(0, 180),
+  });
+  if(!previous || now >= previous.expiresAt){
+    console.info('[MPD] NAS LAN path unavailable; using secure public/tunnel fallback for this browser:', key);
+  }
+}
+
+function _forgetNasLanTransportFailure(candidate){
+  if(!_nasIsLanTransportCandidate(candidate)) return;
+  const key = _nasTransportCacheKey(candidate);
+  if(key) _nasLanTransportFailures.delete(key);
+}
+
 async function _probeNasTransport(candidate){
   if(!candidate || !candidate.url) return false;
+  if(_nasLanTransportCoolingDown(candidate)) return false;
   if(candidate.requires_browser_local_access && !_canUseBrowserLanNasUrl(candidate.url)) return false;
-  if(_browserWillBlockLocalNetwork(candidate.base_url || candidate.url)) return false;
+  if(_browserWillBlockLocalNetwork(candidate.base_url || candidate.url)){
+    _rememberNasLanTransportFailure(candidate, 'Browser private-network policy blocks this LAN URL');
+    return false;
+  }
   if(candidate.via === 'relay') return true;
   const pingUrl = _nasPingUrl(candidate.base_url || candidate.url, candidate.ping_path);
   if(!pingUrl) return false;
   try{
-    const res = await _fetchWithTimeout(pingUrl, {method:'GET'}, candidate.via === 'direct' ? 900 : 1400);
-    return !!(res && res.ok);
-  }catch(_){
+    const timeout = (candidate.via === 'direct' || candidate.via === 'lan_https') ? 900 : 1400;
+    const res = await _fetchWithTimeout(pingUrl, {method:'GET'}, timeout);
+    const ok = !!(res && res.ok);
+    if(ok) _forgetNasLanTransportFailure(candidate);
+    else _rememberNasLanTransportFailure(candidate, `LAN probe returned HTTP ${res ? res.status : 0}`);
+    return ok;
+  }catch(e){
+    _rememberNasLanTransportFailure(candidate, e && e.message ? e.message : 'LAN probe failed');
     return false;
   }
 }
