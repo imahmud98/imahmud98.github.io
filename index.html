@@ -5116,19 +5116,30 @@ function _nasTransferBaseFromUrl(url){
 async function _preferLanHttpsForNasUploadSession(session){
   if(!_canUseNasDirectSession(session)) return session;
   const caps = session.direct?.transfer_capabilities || {};
-  const lanUrl = String(caps.lan_https_url || '').trim();
-  if(!caps.lan_https || !caps.lan_https_trusted_by_os || !lanUrl) return session;
-  const base = _nasTransferBaseFromUrl(lanUrl);
-  if(!base || !_canUseBrowserLanNasUrl(base)) return session;
-  const candidate = {
-    id: 'lan_https_upload',
-    via: 'lan_https',
-    url: `${base}/upload-chunk`,
-    base_url: base,
-    ping_path: '/transfer/ping',
-    requires_browser_local_access: true,
-  };
-  if(!(await _probeNasTransport(candidate))) return session;
+  const lanUrls = [];
+  for(const raw of [caps.lan_https_url, caps.lan_https_ip_url]){
+    const v = String(raw || '').trim();
+    if(v && !lanUrls.includes(v)) lanUrls.push(v);
+  }
+  if(!caps.lan_https || !caps.lan_https_trusted_by_os || !lanUrls.length) return session;
+  let base = '';
+  for(const lanUrl of lanUrls){
+    const candidateBase = _nasTransferBaseFromUrl(lanUrl);
+    if(!candidateBase || !_canUseBrowserLanNasUrl(candidateBase)) continue;
+    const candidate = {
+      id: candidateBase.includes('://192.') || candidateBase.includes('://10.') || candidateBase.includes('://172.') ? 'lan_https_ip_upload' : 'lan_https_upload',
+      via: 'lan_https',
+      url: `${candidateBase}/upload-chunk`,
+      base_url: candidateBase,
+      ping_path: '/transfer/ping',
+      requires_browser_local_access: true,
+    };
+    if(await _probeNasTransport(candidate)){
+      base = candidateBase;
+      break;
+    }
+  }
+  if(!base) return session;
   const direct = Object.assign({}, session.direct, {
     base_url: base,
     upload_chunk_url: `${base}/upload-chunk`,
