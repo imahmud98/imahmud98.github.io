@@ -2425,12 +2425,19 @@
 // API base URL - loaded fresh from api.txt on every page load.
 // api.txt is updated automatically by start.bat (local) or points to Fly.io (production).
 // Fallback: Fly.io production backend (used when api.txt is unavailable).
-let API = 'https://api.mypocketdrive.online';
+const POCKIO_PRODUCTION_HOSTS = new Set(['mypocketdrive.online', 'www.mypocketdrive.online']);
+let API = POCKIO_PRODUCTION_HOSTS.has(location.hostname) ? '/api' : 'https://api.mypocketdrive.online';
 async function loadApiUrl(){
   try{
+    // Production uses the same-origin Worker route /api to avoid credentialed CORS.
+    // Keep api.txt support for localhost/GitHub preview/dev deployments only.
+    if (POCKIO_PRODUCTION_HOSTS.has(location.hostname)) {
+      API = '/api';
+      return;
+    }
     // api.txt lives at the GitHub Pages repo root, not relative to /tgdrive/ subpath
     const r=await fetch(location.origin+'/api.txt?v='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache, no-store','Pragma':'no-cache'}});
-    if(r.ok){const u=(await r.text()).trim();if(u.startsWith('http'))API=u;}
+    if(r.ok){const u=(await r.text()).trim();if(u.startsWith('http'))API=u.replace(/\/$/,'');}
   }catch{}
 }
 
@@ -14310,6 +14317,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
