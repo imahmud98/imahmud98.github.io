@@ -2860,8 +2860,11 @@ function logout(){
   S.savedDirHandle=null;
   E2E.clearCache();
   S._pendingPassword=null;
+  _encryptionUnlockPromise=null;
+  _encryptionUnlockResolve=null;
   _setAccessToken(null);
   _setRefreshToken(null);
+  _hideAllModals();
   location.href=location.pathname+location.search;
 }
 // Single in-flight promise shared by ALL callers of _silentRefresh.
@@ -9652,9 +9655,20 @@ function toast(msg,type='info'){
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // VIEWS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-function showView(name){document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));const el=document.getElementById('view-'+name);if(el)el.classList.add('active');}
-function showModal(id){document.getElementById(id).classList.remove('hidden');}
-function hideModal(id){document.getElementById(id).classList.add('hidden');}
+function _hideAllModals(){
+  document.querySelectorAll('.modal-wrap').forEach(el=>el.classList.add('hidden'));
+}
+function showView(name){
+  if(name!=='app')_hideAllModals();
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  const el=document.getElementById('view-'+name);
+  if(el)el.classList.add('active');
+}
+function showModal(id){
+  if(id==='unlock-encryption-modal' && (!S.token || !S.user))return;
+  document.getElementById(id)?.classList.remove('hidden');
+}
+function hideModal(id){document.getElementById(id)?.classList.add('hidden');}
 
 let _encryptionUnlockPromise = null;
 let _encryptionUnlockResolve = null;
@@ -9711,6 +9725,7 @@ function _configureEncryptionUnlockModal(status, reason){
   }
 }
 async function ensureEncryptionUnlocked(reason='use encrypted cloud files'){
+  if(!S.token || !S.user){_hideAllModals();return false;}
   if(S._password)return true;
   if(_encryptionUnlockPromise)return _encryptionUnlockPromise;
   const status=await _getEncryptionStatus();
@@ -14317,6 +14332,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
