@@ -7690,9 +7690,14 @@ async function processUploadsRouted(){
           transferSession: warmed?.transferSession || null,
           preparedP2P: warmed?.preparedP2P || null,
         });
-        if(!ok && !item._nasNoCloudFallback && item.status !== 'cancelled'){
-          // NAS failed → upload to cloud instead
-          await _uploadOne(item, folderPart);
+        if(!ok && item.status !== 'cancelled'){
+          // If the selected destination is NAS, never silently upload to cloud.
+          // A failed NAS transfer must remain visible so the user can retry or
+          // explicitly choose Cloud from the dashboard.
+          item._nasNoCloudFallback = true;
+          item.status = item.status === 'error' ? item.status : 'error';
+          item.error = item.error || 'NAS upload did not complete. File was not uploaded to cloud.';
+          renderUploadQ();
         }
       } else {
         await _uploadOne(item, folderPart);
@@ -7717,7 +7722,8 @@ async function processUploadsRouted(){
     // Re-apply the persisted dashboard destination (agent vs cloud)
     try{
       const saved = localStorage.getItem('mpd_upload_dest') || 'agent';
-      S._forceCloud = (saved === 'cloud');
+      const explicitCloud = localStorage.getItem('mpd_upload_dest_explicit') === '1';
+      S._forceCloud = (saved === 'cloud' && explicitCloud);
     }catch(e){ S._forceCloud = false; }
   }
   // Do NOT reset S._forceCloud here - it reflects the user's dashboard destination
@@ -12654,7 +12660,11 @@ function dbFileEmoji(cls){
 function dbSelectDevice(type){
   _dbState.activeDevice = type;
   // Persist destination so it survives reloads and re-logins
-  try{ localStorage.setItem('mpd_upload_dest', type); }catch(e){}
+  try{
+    localStorage.setItem('mpd_upload_dest', type);
+    if(type === 'cloud') localStorage.setItem('mpd_upload_dest_explicit','1');
+    else localStorage.removeItem('mpd_upload_dest_explicit');
+  }catch(e){}
   var ac = document.getElementById('db-agent-card');
   var cc = document.getElementById('db-cloud-card');
   var ab = document.getElementById('db-agent-btn');
@@ -12678,9 +12688,13 @@ function dbSelectDevice(type){
 function dbRestoreUploadDest(){
   try{
     var saved = localStorage.getItem('mpd_upload_dest') || 'agent';
+    var explicitCloud = localStorage.getItem('mpd_upload_dest_explicit') === '1';
+    if(saved === 'cloud' && !explicitCloud) saved = 'agent';
+    if(saved !== 'cloud') saved = 'agent';
     _dbState.activeDevice = saved;
     S._forceCloud = (saved === 'cloud');
-    // Update button visuals if dashboard is already rendered
+    // Update button visuals if dashboard is already rendered.
+    // Legacy stale cloud selections are reset to agent/NAS above.
     dbSelectDevice(saved);
   }catch(e){}
 }
@@ -14353,6 +14367,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
