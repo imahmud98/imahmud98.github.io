@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -2872,8 +2872,8 @@ async function _silentRefresh(){
       const refreshToken=_getRefreshToken();
       const r=await fetch(API+'/auth/refresh',{
         method:'POST',
-        // Send body refresh tokens without cookies so wildcard edge CORS cannot break reload.
-        credentials: refreshToken ? 'omit' : 'include',
+        // Send body refresh tokens without cookies so edge CORS cannot break reload.
+        credentials: 'omit',
         headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'true','x-requested-with':'XMLHttpRequest'},
         body:JSON.stringify(refreshToken?{refresh_token:refreshToken}:{})
       });
@@ -14310,6 +14310,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
