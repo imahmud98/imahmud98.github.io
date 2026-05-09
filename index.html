@@ -10828,7 +10828,7 @@ async function openShareDialog(fileIds, folderId=null) {
   if (titleEl) {
     let name = '';
     if (folderId) name = S.folders?.find(f => Number(f.id) === Number(folderId))?.name || 'folder';
-    else if (fileIds.length === 1) name = S.files?.find(f => Number(f.id) === Number(fileIds[0]))?.name || 'file';
+    else if (fileIds.length === 1) name = S.files?.find(f => String(f.id) === String(fileIds[0]))?.name || 'file';
     titleEl.textContent = folderId ? `Share "${name}"` : (fileIds.length > 1 ? `Share ${fileIds.length} files` : `Share "${name}"`);
   }
 
@@ -10869,7 +10869,7 @@ async function openShareDialog(fileIds, folderId=null) {
 
 function shareSelected() {
   if(selectedFolderIds().length){ shareFolder(Number(selectedFolderIds()[0])); return; }
-  const ids = selectedFileIds().map(id=>Number(id)).filter(Number.isFinite);
+  const ids = selectedFileIds().map(id=>String(id)).filter(Boolean);
   if (!ids.length) { toast('Select files to share', 'error'); return; }
   openShareDialog(ids);
 }
@@ -11048,8 +11048,8 @@ async function generateShareLink() {
     //    For per-file keys (future): wrap each file's key separately
     const wrapped_keys = [];
     for (const fileId of ShareState.pendingFileIds) {
-      const fileRecord = S.files.find(f => f.id === fileId) ||
-                         await api('GET', `/files`).then(r => (r?.files||r||[]).find(f => f.id === fileId));
+      const fileRecord = S.files.find(f => String(f.id) === String(fileId)) ||
+                         await api('GET', `/files`).then(r => (r?.files||r||[]).find(f => String(f.id) === String(fileId)));
       if (!fileRecord) throw new Error(`File ${fileId} not found`);
 
       const { wrapped_file_key, key_iv } = await ShareKeyMgr.wrapFileKey(fileKeyRaw, shareKeyCryptoKey);
@@ -11060,6 +11060,7 @@ async function generateShareLink() {
         original_name: fileRecord.name || `file_${fileId}`,
         size: fileRecord.size || 0,
         mime: fileRecord.mime_type || 'application/octet-stream',
+        storage_type: fileRecord._nas ? 'nas' : 'cloud',
       });
     }
 
@@ -14367,6 +14368,8 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
+
 
 
 
