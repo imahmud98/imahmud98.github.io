@@ -9664,8 +9664,26 @@ function showView(name){
   const el=document.getElementById('view-'+name);
   if(el)el.classList.add('active');
 }
+let _sensitiveUserActionUntil=0;
+function _markSensitiveUserAction(){_sensitiveUserActionUntil=Date.now()+20000;}
+function _isSensitiveFlowVisible(){
+  return ['upload-modal','download-modal','usb-backup-modal'].some(id=>{
+    const el=document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  });
+}
+function _canShowEncryptionUnlock(){
+  const appActive=document.getElementById('view-app')?.classList.contains('active');
+  return !!(S.token && S.user && appActive && (_isSensitiveFlowVisible() || Date.now()<_sensitiveUserActionUntil));
+}
+['pointerdown','keydown','drop','change','submit'].forEach(type=>{
+  document.addEventListener(type,_markSensitiveUserAction,{capture:true,passive:true});
+});
+window.addEventListener('pageshow',()=>{
+  if(!_canShowEncryptionUnlock())hideModal('unlock-encryption-modal');
+});
 function showModal(id){
-  if(id==='unlock-encryption-modal' && (!S.token || !S.user))return;
+  if(id==='unlock-encryption-modal' && !_canShowEncryptionUnlock())return;
   document.getElementById(id)?.classList.remove('hidden');
 }
 function hideModal(id){document.getElementById(id)?.classList.add('hidden');}
@@ -9726,6 +9744,7 @@ function _configureEncryptionUnlockModal(status, reason){
 }
 async function ensureEncryptionUnlocked(reason='use encrypted cloud files'){
   if(!S.token || !S.user){_hideAllModals();return false;}
+  if(!_canShowEncryptionUnlock())return false;
   if(S._password)return true;
   if(_encryptionUnlockPromise)return _encryptionUnlockPromise;
   const status=await _getEncryptionStatus();
@@ -14332,6 +14351,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
