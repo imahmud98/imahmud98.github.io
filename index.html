@@ -5003,8 +5003,7 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     if(isRelay && S.token) headers.set('Authorization', `Bearer ${S.token}`);
 
     const res = await fetch(uploadUrl, { method: 'PUT', headers, body: thumb.blob });
-    if(!res.ok) throw new Error(
-        AS thumbnail upload failed: ${res.status}`);
+    if(!res.ok) throw new Error(`NAS thumbnail upload failed: ${res.status}`);
 
     await api('POST', `/nas/thumb/${encodeURIComponent(fileId)}/register`, {
       thumbnail_path: info.thumbnail_path,
@@ -6887,8 +6886,7 @@ async function _getNasTransferSessionStatus(sessionId){
         continue;
       }
       const data = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(data.detail || 
-        AS transfer status failed: ${res.status}`);
+      if(!res.ok) throw new Error(data.detail || `NAS transfer status failed: ${res.status}`);
       return data;
     }catch(e){
       lastErr = e;
@@ -6923,8 +6921,7 @@ async function _postNasTransferSessionComplete(sessionId, payload){
       }
       const ct = res.headers.get('content-type') || '';
       const data = ct.includes('application/json') ? await res.json().catch(()=>({})) : {};
-      if(!res.ok) throw new Error(data.detail || 
-        AS transfer complete failed: ${res.status}`);
+      if(!res.ok) throw new Error(data.detail || `NAS transfer complete failed: ${res.status}`);
       return data || {};
     }catch(e){
       lastErr = e;
@@ -6978,8 +6975,7 @@ async function _uploadNasDirectSession(item, session){
           try{ return await res.json(); }
           catch{ return {}; }
         }
-        throw new Error(
-        AS direct session control failed: ${res.status}`);
+        throw new Error(`NAS direct session control failed: ${res.status}`);
       }).catch(e => {
         const message = e && e.message ? e.message : '';
         if(_isNasLocalNetworkFetchFailure(message)){
@@ -7000,8 +6996,7 @@ async function _uploadNasDirectSession(item, session){
           try{ resolve(JSON.parse(xhr.responseText || '{}')); }
           catch{ resolve({}); }
         } else {
-          reject(new Error(
-        AS direct session control failed: ${xhr.status}`));
+          reject(new Error(`NAS direct session control failed: ${xhr.status}`));
         }
       };
       xhr.onerror = () => reject(new Error('NAS direct session control network error'));
@@ -7038,8 +7033,7 @@ async function _uploadNasDirectSession(item, session){
           if(!res.ok){
             let detail = '';
             try{ detail = await res.text(); }catch(_){}
-            throw new Error(
-        AS direct chunk failed: ${res.status}${detail ? ' ' + detail.slice(0, 160) : ''}`);
+            throw new Error(`NAS direct chunk failed: ${res.status}${detail ? ' ' + detail.slice(0, 160) : ''}`);
           }
           chunkProgress[i] = 1;
           item.progress = chunkProgress.reduce((a,v)=>a+v,0) / totalChunks;
@@ -7077,8 +7071,7 @@ async function _uploadNasDirectSession(item, session){
                 const parsed = JSON.parse(xhr.responseText || '{}');
                 detail = parsed.error || parsed.detail || '';
               }catch{}
-              reject(new Error(
-        AS direct session chunk failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
+              reject(new Error(`NAS direct session chunk failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
             }
           };
           xhr.onerror = () => reject(new Error('NAS direct session network error'));
@@ -7176,8 +7169,7 @@ async function _uploadNasDirectSession(item, session){
   }
   const verifiedStatus = finalStatus.status === 'completed' ? finalStatus : await _waitForNasTransferSession(session.session_id);
   if(verifiedStatus.status !== 'completed'){
-    throw new Error(verifiedStatus.error_detail || 
-        AS transfer ended with status ${verifiedStatus.status}`);
+    throw new Error(verifiedStatus.error_detail || `NAS transfer ended with status ${verifiedStatus.status}`);
   }
   return verifiedStatus;
 }
@@ -7236,8 +7228,7 @@ async function _uploadNasDirectChunked(item, info, folderId){
                 const parsed = JSON.parse(xhr.responseText || '{}');
                 detail = parsed.error || parsed.detail || '';
               }catch{}
-              reject(new Error(
-        AS chunk upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
+              reject(new Error(`NAS chunk upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
             }
           };
           xhr.onerror   = () => reject(new Error('NAS network error'));
@@ -7333,9 +7324,8 @@ async function _uploadNasRelayChunked(item, info, folderId){
               try{
                 const parsed = JSON.parse(xhr.responseText || '{}');
                 detail = parsed.error || parsed.detail || '';
-              }catch{}
-              reject(new Error(
-        AS chunk upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
+              }catch(_e){}
+              reject(new Error(`NAS chunk upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
             }
           };
           xhr.onerror   = () => reject(new Error('NAS network error'));
@@ -7586,10 +7576,9 @@ async function _uploadNasDirect(item, folderId, options={}){
                       let detail = '';
                       try{
                         const parsed = JSON.parse(xhr.responseText || '{}');
-                        detail = parsed.error || parsed.detail || '';
-                      }catch{}
-                      reject(new Error(
-        AS upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
+                      }catch(_e){}
+                      reject(new Error(`NAS upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
+                      reject(new Error(`NAS upload failed: ${xhr.status}${detail ? ` ${detail}` : ''}`));
                     }
                   };
                   xhr.onerror = () => reject(new Error('NAS network error'));
@@ -8861,8 +8850,7 @@ async function _downloadNasRelayChunked(item, dlUrl, dlHeaders, fileSize, writab
   while(true){
     try{
       const res = await fetch(dlUrl, { headers: dlHeaders });
-      if(!res.ok) throw new Error(
-        AS relay download failed: ${res.status}`);
+      if(!res.ok) throw new Error(`NAS relay download failed: ${res.status}`);
 
       if(writable){
         // Stream directly to disk via FileSystem API - minimal RAM usage
@@ -9027,8 +9015,7 @@ async function _downloadNasDirectStreamed(item, url, headers, fileSize, writable
   if(!res.ok){
     if(res.status === 404) throw new Error('NAS file is missing on the agent device. Refresh My Files or re-upload the file.');
     if(res.status === 401 || res.status === 403) throw new Error('NAS download authorization expired. Please retry the download.');
-    throw new Error(
-        AS download failed: ${res.status}`);
+    throw new Error(`NAS download failed: ${res.status}`);
   }
   if(!res.body) throw new Error('Streaming download is not supported by this browser');
 
