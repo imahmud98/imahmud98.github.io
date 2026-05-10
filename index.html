@@ -13203,6 +13203,22 @@ document.addEventListener('DOMContentLoaded', function(){
 .share-auth-toggle{justify-content:flex-start!important}
 .share-footer-actions{align-items:center!important}
 @media(max-width:720px){.share-person-row,.share-access-row{grid-template-columns:34px minmax(0,1fr)!important}.share-role-select{width:auto!important;min-width:128px!important}.share-footer-actions{align-items:stretch!important}}
+</style><style id="share-left-align-restore-v2">
+/* Keep the original compact share modal proportions; only left-align text content. */
+.share-title-wrap,.share-title-wrap>div:last-child,.share-title-wrap .modal-title,.share-title-wrap p,
+.share-section h3,.share-person-meta,.share-person-meta strong,.share-person-meta span,
+.share-access-main,.share-access-main p,.share-auth-toggle{text-align:left!important}
+.share-person-row{display:flex!important;grid-template-columns:none!important;align-items:center!important;gap:12px!important;min-height:46px!important}
+.share-person-row .share-avatar{grid-column:auto!important;grid-row:auto!important;flex:0 0 auto!important}
+.share-person-row .share-person-meta{grid-column:auto!important;grid-row:auto!important;flex:1 1 auto!important;min-width:0!important;align-items:flex-start!important}
+.share-person-row .share-role-muted{grid-column:auto!important;grid-row:auto!important;justify-self:auto!important;margin-left:auto!important;white-space:nowrap!important;font-size:13px!important;line-height:1.2!important}
+.share-access-row{display:flex!important;grid-template-columns:none!important;align-items:center!important;gap:12px!important}
+.share-access-icon{grid-column:auto!important;grid-row:auto!important;flex:0 0 auto!important}
+.share-access-main{grid-column:auto!important;grid-row:auto!important;flex:1 1 auto!important;min-width:0!important}
+.share-role-select{grid-column:auto!important;grid-row:auto!important;justify-self:auto!important;margin-left:auto!important;margin-top:0!important;min-width:132px!important}
+.share-mode-select{text-align:left!important}
+.share-auth-toggle{justify-content:flex-start!important}
+@media(max-width:720px){.share-person-row{display:flex!important;align-items:center!important}.share-access-row{display:flex!important;align-items:center!important}.share-role-select{width:auto!important;min-width:128px!important;margin-left:auto!important}}
 </style><div id="share-modal" class="modal-wrap hidden">
   <div class="modal-box pockio-share-modal" style="max-width:640px;max-height:92vh;overflow:visible">
     <div class="modal-hd share-modern-hd">
