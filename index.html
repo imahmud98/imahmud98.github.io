@@ -2417,6 +2417,9 @@
   #view-app .hd-logo{min-width:150px !important;}
 }
 
+/* Pockio toolbar polish: keep Move action proportionate with the other file actions. */
+#view-app #tb-move{width:40px!important;height:40px!important;border-radius:50%!important;min-width:40px!important;}
+#view-app #tb-move svg{width:18px!important;height:18px!important;}
 </style>
 <body>
 <script>
@@ -4984,6 +4987,8 @@ async function _makeImageThumbnailBlob(file, maxPx=180, quality=0.62){
 }
 
 async function _uploadNasThumbnailSidecar(file, fileId){
+  // NAS thumbnails are user-owned storage sidecars. Do not auto-create them from browser uploads.
+  return false;
   if(!fileId || !file || !(String(file.type||'').startsWith('image/') || isImageFile(file.name))) return false;
   try{
     const thumb = await _makeImageThumbnailBlob(file, 220, 0.68).catch(()=>null);
@@ -5014,6 +5019,13 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     const nasThumbKey = 'nas_' + fileId;
     _thumbCache.delete(nasThumbKey);
     _thumbFailTs.delete(nasThumbKey);
+    const visible = (S.files || []).find(f => String(f.id) === String(fileId) || String(f.file_id || '') === String(fileId));
+    if(visible){
+      visible.has_thumbnail = true;
+      visible.thumbnail_path = info.thumbnail_path;
+      if(S.activeSection === 'drive') renderFiles();
+    }
+    setTimeout(applyThumbnails, 80);
     return true;
   }catch(e){
     console.info('[MPD] NAS thumbnail sidecar skipped:', e.message || e);
@@ -10040,7 +10052,7 @@ function renderFiles(){
       const sel=S.selectedIds.has(String(f.id));
       const deleting=S.deletingIds.has(f.id);
       const e2eeThumb=f.storage_version === 'client_e2ee_s3' && isImageFile(f.name);
-      const hasThumb=e2eeThumb || (f.storage_version !== 'client_e2ee_s3' && (f._nas ? (f.has_thumbnail||f.thumbnail_path) : (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path)));
+      const hasThumb=e2eeThumb || (f.storage_version !== 'client_e2ee_s3' && (f._nas ? false : (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path)));
       const previewDbl = f._nas
         ? ` ondblclick="event.stopPropagation();openNasPreview('${f.id}')"`
         : ` ondblclick="event.stopPropagation();openCloudPreview('${f.id}')"`; 
@@ -10086,7 +10098,7 @@ function renderFiles(){
         const sel=S.selectedIds.has(String(f.id));
         const deleting=S.deletingIds.has(f.id);
         const e2eeThumb=f.storage_version === 'client_e2ee_s3' && isImageFile(f.name);
-        const hasThumb=e2eeThumb || (f.storage_version !== 'client_e2ee_s3' && (f._nas ? (f.has_thumbnail||f.thumbnail_path) : (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path)));
+        const hasThumb=e2eeThumb || (f.storage_version !== 'client_e2ee_s3' && (f._nas ? false : (f.has_thumbnail||isImageFile(f.name)||f.thumbnail_path)));
         const dateStr=fmtDate(f.captured_at||f.created_at);
         const rowBg=sel?'#e8f0fe':'#fff';
         const rowBorder=sel?'border-bottom:1px solid #c5d8fd;':'border-bottom:1px solid #f1f3f4;';
@@ -13169,7 +13181,7 @@ function dbLoadRecentFiles(){
       // Use data-thumb-id/data-thumb-nas so applyThumbnails() fetches with auth header
       var isImage  = f.mime_type && f.mime_type.startsWith('image/');
       var thumbIsE2EE = f.storage_version === 'client_e2ee_s3' && (isImage || isImageFile(name));
-      var hasThumb = thumbIsE2EE || (f.storage_version !== 'client_e2ee_s3' && (src === 'nas' ? (!!f.has_thumbnail || !!f.thumbnail_path) : (!!f.has_thumbnail || isImage || isImageFile(name) || !!f.thumbnail_path))); 
+      var hasThumb = thumbIsE2EE || (f.storage_version !== 'client_e2ee_s3' && (src === 'nas' ? false : (!!f.has_thumbnail || isImage || isImageFile(name) || !!f.thumbnail_path))); 
       var thumbId  = null;
       var thumbIsNas = false;
       if(hasThumb){
