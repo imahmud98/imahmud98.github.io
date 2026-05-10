@@ -13219,6 +13219,21 @@ document.addEventListener('DOMContentLoaded', function(){
 .share-mode-select{text-align:left!important}
 .share-auth-toggle{justify-content:flex-start!important}
 @media(max-width:720px){.share-person-row{display:flex!important;align-items:center!important}.share-access-row{display:flex!important;align-items:center!important}.share-role-select{width:auto!important;min-width:128px!important;margin-left:auto!important}}
+</style><style id="share-left-align-settings-fix-v3">
+/* Exact left edge for general access text plus contained settings scrolling. */
+.pockio-share-modal{max-height:min(92vh,720px)!important;overflow:hidden!important;display:flex!important;flex-direction:column!important}
+.pockio-share-modal .share-modern-body{overflow-y:auto!important;overflow-x:hidden!important;max-height:calc(min(92vh,720px) - 92px)!important;scrollbar-gutter:stable!important}
+.share-general-access .share-access-row{display:grid!important;grid-template-columns:38px minmax(0,1fr) 150px!important;column-gap:12px!important;align-items:start!important}
+.share-general-access .share-access-icon{grid-column:1!important;grid-row:1 / span 3!important;margin-top:2px!important}
+.share-general-access .share-access-main{grid-column:2!important;grid-row:1!important;display:flex!important;flex-direction:column!important;align-items:flex-start!important;min-width:0!important;text-align:left!important}
+.share-general-access #share-access-mode{display:block!important;margin:0!important;padding-left:0!important;width:auto!important;max-width:100%!important;text-align:left!important;text-align-last:left!important;background:transparent!important}
+.share-general-access #share-access-copy{display:block!important;margin:4px 0 0!important;padding:0!important;text-align:left!important;width:100%!important}
+.share-general-access .share-auth-toggle{display:flex!important;margin:8px 0 0!important;padding:0!important;align-items:center!important;justify-content:flex-start!important;text-align:left!important;width:100%!important}
+.share-general-access .share-role-select{grid-column:3!important;grid-row:1!important;justify-self:stretch!important;align-self:start!important;margin:0!important;min-width:0!important;width:100%!important;text-align-last:left!important}
+.share-settings-panel{max-height:none!important;overflow:visible!important;margin-bottom:0!important}
+.share-advanced-grid{max-height:none!important;overflow:visible!important}
+.share-advanced-grid .f-input{min-height:42px!important}
+@media(max-width:720px){.pockio-share-modal{max-height:calc(100vh - 20px)!important}.pockio-share-modal .share-modern-body{max-height:calc(100vh - 110px)!important}.share-general-access .share-access-row{grid-template-columns:34px minmax(0,1fr)!important}.share-general-access .share-role-select{grid-column:2!important;grid-row:2!important;justify-self:start!important;width:auto!important;min-width:128px!important;margin-top:8px!important}}
 </style><div id="share-modal" class="modal-wrap hidden">
   <div class="modal-box pockio-share-modal" style="max-width:640px;max-height:92vh;overflow:visible">
     <div class="modal-hd share-modern-hd">
