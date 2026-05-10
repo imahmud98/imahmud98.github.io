@@ -2527,7 +2527,7 @@ const S={
   recoveryKeyBytes:null,
   recoveryKeyText:null,
   _initAppRunning:false,
-  folders:[],currentFolder:null,folderPath:[],files:[],
+  folders:[],currentFolder:null,folderPath:[],files:[],sharedWithMe:[],
   selectedIds:new Set(),
   uploadQueue:[],isUploading:false,
   downloadQueue:[],isDownloading:false,
@@ -3258,6 +3258,7 @@ function showSection(section){
   if(section==='licenses'){loadLicenses();}
   if(section==='cloud'){loadCloudFiles();}
   if(section==='bin'){loadBin();}
+  if(section==='shared'){loadSharedWithMe();}
   // NOTE: sync section is intentionally NOT shown from web nav - Android only
 }
 
@@ -9937,6 +9938,67 @@ function renderFolders(){
   }).join('');
 }
 
+function _sharedItemUrl(item){
+  const base = (location.hostname === 'mypocketdrive.online' || location.hostname === 'www.mypocketdrive.online') ? location.origin : String(API||'').replace(/\/api$/,'');
+  let key = '';
+  try{ key = (JSON.parse(localStorage.getItem('mpd_shared_link_keys')||'{}')||{})[item.share_id] || ''; }catch(_){ key=''; }
+  return `${base}/share/${item.share_id}${key ? `?k=${key}#${key}` : ''}`;
+}
+async function loadSharedWithMe(){
+  const el=document.getElementById('shared-with-me-list');
+  if(el) el.innerHTML='<div class="text-center py-12 text-gray-400 text-sm">Loading shared files...</div>';
+  try{
+    const r=await api('GET','/shared-with-me');
+    S.sharedWithMe=r?.items||[];
+    renderSharedWithMe();
+  }catch(e){
+    if(el) el.innerHTML=`<div class="text-center py-12 text-red-500 text-sm">${esc(e.message||'Could not load shared files')}</div>`;
+  }
+}
+function openSharedItem(id){
+  const item=S.sharedWithMe.find(x=>String(x.id)===String(id));
+  if(!item)return;
+  window.open(_sharedItemUrl(item),'_blank','noopener');
+}
+function downloadSharedItem(id){ openSharedItem(id); }
+function renderSharedWithMe(){
+  const el=document.getElementById('shared-with-me-list');if(!el)return;
+  const items=[...(S.sharedWithMe||[])];
+  if(!items.length){
+    el.className=''; el.style.cssText='';
+    el.innerHTML='<div class="text-center py-16" style="color:var(--sub)"><div style="font-size:15px;font-weight:600;color:var(--txt);">No files shared with you yet.</div><div style="font-size:13px;margin-top:6px;">When someone shares a file or folder with you, it will appear here.</div></div>';
+    return;
+  }
+  items.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const isGrid=S.viewMode==='grid';
+  if(isGrid){
+    el.className='grid-mode';
+    el.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:12px;background:transparent;';
+    el.innerHTML=items.map(item=>`<div class="fade-in" data-click="openSharedItem('${esc(item.id)}')" style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:#fff;border:1px solid #E5E7EB;cursor:pointer;position:relative;">
+      <div style="width:100%;aspect-ratio:1;background:#F2F2F7;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--p);font-size:34px;">${fileIcon(item.name)}</div>
+      <div style="padding:8px 10px;background:#fff;">
+        <div style="font-size:12px;font-weight:500;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(item.name)}">${esc(item.name)}</div>
+        <div style="font-size:11px;color:#9CA3AF;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${fmtSize(item.size||0)} - shared by ${esc(item.owner_name||'Pockio user')}</div>
+      </div>
+    </div>`).join('');
+  }else{
+    el.className=''; el.style.cssText='';
+    el.innerHTML=`<div style="display:flex;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid #e0e0e0;background:#fff;gap:16px;">
+      <span style="flex:1;font-size:12px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.4px;">Name</span>
+      <span style="width:160px;font-size:12px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.4px;">Owner</span>
+      <span style="width:90px;font-size:12px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.4px;">Access</span>
+      <span style="width:80px;font-size:12px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.4px;text-align:right;">Size</span>
+      <span style="width:84px;"></span>
+    </div>${items.map(item=>`<div class="fade-in" data-click="openSharedItem('${esc(item.id)}')" style="display:flex;align-items:center;height:54px;padding:0 16px;gap:16px;background:#fff;border-bottom:1px solid #f1f3f4;cursor:pointer;">
+      <div style="width:36px;height:36px;border-radius:8px;flex-shrink:0;background:#eef8f7;color:var(--p);display:flex;align-items:center;justify-content:center;font-size:20px;">${fileIcon(item.name)}</div>
+      <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:400;color:#202124;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}</div><div style="font-size:12px;color:#8b97a8;margin-top:1px;">Shared item - owner storage</div></div>
+      <span style="width:160px;font-size:13px;color:#5f6368;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.owner_name||'Pockio user')}</span>
+      <span style="width:90px;font-size:13px;color:var(--p);text-transform:capitalize;">${esc(item.role||'viewer')}</span>
+      <span style="width:80px;font-size:13px;color:#5f6368;text-align:right;">${fmtSize(item.size||0)}</span>
+      <button class="btn-secondary" data-click="event.stopPropagation();openSharedItem('${esc(item.id)}')" style="width:84px;padding:7px 10px;font-size:12px;border-radius:10px;">Open</button>
+    </div>`).join('')}`;
+  }
+}
 function renderFiles(){
   const el=document.getElementById('file-list');if(!el)return;
   // ── Files section label (mobile) ──
@@ -11840,18 +11902,17 @@ async function revokeShare(shareId) {
         Referrals
       </button>
 
-      <!-- My Shares -->
-      <button data-click="openShareDialog([]);showModal('share-modal');loadMyShares();" class="sb-nav-item">
+      <!-- Shared with me -->
+      <button id="nav-shared" data-click="showSection('shared')" class="sb-nav-item nav-btn">
         <span class="sb-icon">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="12.5" cy="3" r="1.8" stroke="currentColor" stroke-width="1.3" fill="none"/>
-            <circle cx="12.5" cy="13" r="1.8" stroke="currentColor" stroke-width="1.3" fill="none"/>
-            <circle cx="3.5" cy="8" r="1.8" stroke="currentColor" stroke-width="1.3" fill="none"/>
-            <line x1="5.2" y1="7.1" x2="10.8" y2="3.9" stroke="currentColor" stroke-width="1.2"/>
-            <line x1="5.2" y1="8.9" x2="10.8" y2="12.1" stroke="currentColor" stroke-width="1.2"/>
+            <circle cx="5.2" cy="5.1" r="2.1" stroke="currentColor" stroke-width="1.3" fill="none"/>
+            <circle cx="10.8" cy="5.1" r="2.1" stroke="currentColor" stroke-width="1.3" fill="none"/>
+            <path d="M2.2 13.2a3.4 3.4 0 0 1 6.1-2.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+            <path d="M7.7 13.2a3.4 3.4 0 0 1 6.1-2.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>
           </svg>
         </span>
-        My Shares
+        Shared with me
       </button>
 
       <!-- Licenses (admin, hidden by default) -->
@@ -11993,6 +12054,29 @@ async function revokeShare(shareId) {
       </div>
 
       <!-- â•â• CLOUD SECTION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+
+      <div id="section-shared" class="app-section hidden flex-1 flex flex-col overflow-hidden">
+        <div class="drive-tb">
+          <div class="tb-left"><div class="text-sm" style="color:var(--sub);font-weight:700;">Shared with me</div></div>
+          <div class="tb-right">
+            <button class="tb-act" data-click="loadSharedWithMe()" title="Refresh shared files">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M13 7a5 5 0 1 0-1.5 3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/><path d="M13 3.5V7h-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            </button>
+            <div class="tb-divider"></div>
+            <div class="vt-wrap">
+              <button data-click="setViewMode('list');renderSharedWithMe()" title="List view" class="vt-btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="0" y="2" width="16" height="2" rx="1" fill="currentColor"/><rect x="0" y="7" width="16" height="2" rx="1" fill="currentColor"/><rect x="0" y="12" width="16" height="2" rx="1" fill="currentColor"/></svg>
+              </button>
+              <button data-click="setViewMode('grid');renderSharedWithMe()" title="Grid view" class="vt-btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="0" y="0" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="10" y="0" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="0" y="10" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="10" y="10" width="6" height="6" rx="1.5" fill="currentColor"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="drop-zone scrollable flex-1" style="padding:8px 24px 24px;">
+          <div id="shared-with-me-list" class="space-y-0.5"></div>
+        </div>
+      </div>
       <div id="section-bin" class="app-section hidden flex-1 flex flex-col overflow-hidden">
         <div class="drive-tb"><div class="tb-left"><div class="text-sm" style="color:var(--sub);font-weight:700;">Bin</div></div><div class="tb-right"></div></div>
         <div class="scrollable flex-1" style="padding:24px;"><div style="max-width:980px;margin:0 auto;"><div style="background:var(--sur);border-radius:18px;box-shadow:var(--shadow-soft);padding:18px 18px 8px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><div style="width:36px;height:36px;border-radius:12px;background:var(--pl);display:flex;align-items:center;justify-content:center;color:var(--p);"><svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M3.5 4.5h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M6 2.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4.5 4.5l.7 8.1a1.4 1.4 0 0 0 1.4 1.3h2.8a1.4 1.4 0 0 0 1.4-1.3l.7-8.1" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></div><div><div style="font-size:18px;font-weight:800;color:var(--txt);">Bin</div><div style="font-size:12px;color:var(--sub);">Items stay in your storage until you permanently delete them.</div></div></div><div id="bin-list"></div></div></div></div>
@@ -13806,16 +13890,15 @@ async function handleSaveProfile(){
       Referrals
     </button>
 
-    <!-- My Shares -->
-    <button class="mob-drawer-nav-row" data-click="mobNavClose();openShareDialog([]);showModal('share-modal');loadMyShares();">
+    <!-- Shared with me -->
+    <button class="mob-drawer-nav-row" data-click="mobNavClose();showSection('shared')">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <circle cx="18" cy="5" r="2.5" stroke="currentColor" stroke-width="1.6" fill="none"/>
-        <circle cx="6"  cy="12" r="2.5" stroke="currentColor" stroke-width="1.6" fill="none"/>
-        <circle cx="18" cy="19" r="2.5" stroke="currentColor" stroke-width="1.6" fill="none"/>
-        <line x1="8.4" y1="10.8" x2="15.6" y2="6.2" stroke="currentColor" stroke-width="1.5"/>
-        <line x1="8.4" y1="13.2" x2="15.6" y2="17.8" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.6" fill="none"/>
+        <circle cx="16" cy="8" r="3" stroke="currentColor" stroke-width="1.6" fill="none"/>
+        <path d="M3.5 20a5 5 0 0 1 8.5-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+        <path d="M12 20a5 5 0 0 1 8.5-3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/>
       </svg>
-      My Shares
+      Shared with me
     </button>
 
   </div>
