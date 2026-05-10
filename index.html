@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -11072,13 +11072,18 @@ async function generateShareLink() {
       access_mode, public_requires_auth, role_default, recipients
     });
 
-    // 5. Build the full share URL with ShareKey in the fragment (#)
-    //    Fragment is NEVER sent to the server by any browser
+    // 5. Build the full share URL with ShareKey in the fragment (#).
+    //    API calls may use the same-origin /api proxy, but human share links
+    //    must open the backend share page itself, not /api/share inside the app.
     let shareUrl;
-    // Share URL must point to the BACKEND (ngrok/custom domain), not GitHub Pages.
-    // GitHub Pages is static-only and cannot serve /share/{id} routes.
-    // The backend serves share.html at GET /share/{id}.
-    const shareBase = API.replace(/\/$/, '');
+    const shareBase = (() => {
+      const apiBase = String(API || '').replace(/\/$/, '');
+      if (/^https?:\/\//i.test(apiBase)) return apiBase.replace(/\/api$/i, '');
+      if (location.hostname === 'mypocketdrive.online' || location.hostname === 'www.mypocketdrive.online') {
+        return 'https://api.mypocketdrive.online';
+      }
+      return location.origin;
+    })();
     if (isPasswordProtected) {
       // Password mode: ?k=pw in query string (WhatsApp safe) + #pw fragment
       shareUrl = `${shareBase}/share/${resp.share_id}?k=pw#pw`;
@@ -11087,8 +11092,7 @@ async function generateShareLink() {
       // Key in BOTH query param (WhatsApp-safe) and fragment (security best practice)
       // The fragment is preferred; query param is fallback if fragment stripped
       shareUrl = `${shareBase}/share/${resp.share_id}?k=${fragment}#${fragment}`;
-    }
-    ShareState.generatedLink = shareUrl;
+    }    ShareState.generatedLink = shareUrl;
 
     // Show the generated link
     const linkWrap = document.getElementById('share-link-wrap');
@@ -14368,6 +14372,7 @@ async function usbBackupRetryFailed(){
 </script>
 </body>
 </html>
+
 
 
 
