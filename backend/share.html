@@ -1,0 +1,129 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Pockio - Secure Share</title>
+<link rel="stylesheet" href="/static/share.css?v=20260514share3">
+</head>
+<body>
+<header class="share-topbar share-app-header">
+  <a class="share-brand share-app-logo" href="https://mypocketdrive.online/#/shared" aria-label="Pockio">
+    <img src="/static/pockio_exact_no_change.svg" alt="Pockio" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'"/>
+    <span class="brand-fallback">Pockio</span>
+  </a>
+  <div class="share-search-wrap" role="search">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+      <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+    <input id="share-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search in Pockio" aria-label="Search shared files"/>
+  </div>
+  <a id="share-signin-link" class="signin-pill share-app-signin" href="https://mypocketdrive.online/#/login">
+    <span class="signin-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M10.5 5.5h-2A3.5 3.5 0 0 0 5 9v6a3.5 3.5 0 0 0 3.5 3.5h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M12 8l4 4-4 4M16 12H8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M18 4.8a7.8 7.8 0 0 1 0 14.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".55"/>
+      </svg>
+    </span>
+    <span>Sign in</span>
+  </a>
+</header>
+<div class="share-app-layout">
+<aside class="share-sidebar" aria-label="Public share sections">
+  <div class="share-sidebar-label">Categories</div>
+  <button class="share-sidebar-item active" type="button" aria-current="page">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M3.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5M11.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </svg>
+    <span>Shared with me</span>
+  </button>
+  <div class="share-sidebar-spacer"></div>
+  <div class="share-sidebar-e2e">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M12 14v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>
+    <span>End-to-end encrypted cloud</span>
+  </div>
+</aside>
+<main class="share-shell">
+  <section id="panel-loading" class="share-state center">
+    <span class="spinner"></span>
+    <p class="loading-copy">Loading shared item...</p>
+  </section>
+
+  <section id="panel-error" class="share-state error-state center hidden">
+    <div class="state-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4m0 4h.01M10.3 4.5 2.9 17.2A2 2 0 0 0 4.6 20h14.8a2 2 0 0 0 1.7-2.8L13.7 4.5a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+    <h1 id="error-title">Invalid share link</h1>
+    <p id="error-msg">The link may be incomplete, expired, or revoked.</p>
+    <a id="share-error-signin-link" class="btn btn-ghost" href="https://mypocketdrive.online/#/login">Sign in to Pockio</a>
+  </section>
+
+  <section id="panel-password" class="share-state password-card hidden">
+    <div class="state-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0 1 10 0v3" stroke="currentColor" stroke-width="1.8"/><path d="M6 11h12v10H6V11Z" stroke="currentColor" stroke-width="1.8"/></svg></div>
+    <h1>Password required</h1>
+    <p>This encrypted share is password-protected.</p>
+    <div id="pw-err" class="err hidden"></div>
+    <input id="share-password" type="password" placeholder="Enter password"/>
+    <button class="btn" id="pw-btn">Unlock</button>
+  </section>
+
+  <section id="panel-files" class="hidden">
+    <div class="share-hero">
+      <div>
+        <p class="eyebrow">Pockio secure share</p>
+        <h1 id="share-label">Shared files</h1>
+        <p id="share-meta" class="share-meta"></p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-ghost" id="download-all-btn">Download all</button>
+        <div class="view-toggle" aria-label="View mode"><button type="button" class="active">List</button><button type="button">Grid</button></div>
+      </div>
+    </div>
+    <div class="privacy-note"><strong>End-to-end encrypted.</strong> Files decrypt in your browser. Pockio never sees the plaintext.</div>
+    <div class="file-table-card">
+      <div class="file-table-head"><span>Name</span><span>Access</span><span>Size</span><span></span></div>
+      <div id="file-list"></div>
+      <div class="file-foot"><span id="file-count"></span></div>
+    </div>
+    <div id="progress-panel" class="progress-card">
+      <div class="between progress-head">
+        <span id="progress-label" class="progress-label">Decrypting...</span>
+        <span id="progress-count" class="progress-count"></span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill zero-width" id="progress-bar"></div></div>
+      <p id="progress-detail" class="progress-detail">Files decrypt locally and are not sent anywhere.</p>
+    </div>
+  </section>
+</main>
+</div>
+<aside class="share-signup-promo" aria-label="Create a free Pockio account">
+  <div class="promo-icon" aria-hidden="true">
+    <svg viewBox="0 0 48 48" fill="none">
+      <rect x="9" y="17" width="30" height="21" rx="8" fill="#e6fffb" stroke="#0D6D6E" stroke-width="2"/>
+      <path d="M16 17v-3.5A8 8 0 0 1 24 5.5a8 8 0 0 1 8 8V17" stroke="#0D6D6E" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M24 25v6" stroke="#0D6D6E" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="24" cy="24" r="2.4" fill="#14b8a6"/>
+    </svg>
+  </div>
+  <div>
+    <h2>Get your own encrypted cloud space</h2>
+    <p>Start with 5 GB free. Extend up to 10 GB and keep your files protected with Pockio.</p>
+  </div>
+  <a id="share-signup-link" class="promo-cta" href="https://mypocketdrive.online/#/signup">Create free account</a>
+</aside>
+<div id="toast"></div>
+<script src="/static/share.js?v=20260514share3" defer></script>
+</body>
+</html>
+
+
+
+
+
+
+
