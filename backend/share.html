@@ -7,16 +7,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="/static/share.css?v=20260515appmatch1">
+<link rel="stylesheet" href="/static/share.css?v=20260515appmatch2">
 </head>
 <body>
-<header class="share-topbar share-app-header">
-  <a class="share-brand share-app-logo" href="https://mypocketdrive.online/#/shared" aria-label="Pockio">
-    <img src="/static/pockio_exact_no_change.svg" alt="Pockio" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'"/>
-    <span class="brand-fallback">Pockio</span>
-  </a>
-  <div class="share-search-wrap" role="search">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<header id="app-header" class="share-topbar share-app-header">
+  <div class="hd-left">
+    <a class="share-brand share-app-logo hd-logo" href="https://mypocketdrive.online/#/shared" aria-label="Pockio">
+      <img class="hd-logo-img" src="/static/pockio_exact_no_change.svg" alt="Pockio" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'"/>
+      <span class="brand-fallback">Pockio</span>
+    </a>
+  </div>
+  <div class="share-search-wrap hd-search-wrap" role="search">
+    <svg class="hd-search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
       <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </svg>
@@ -33,24 +35,67 @@
     <span>Sign in</span>
   </a>
 </header>
-<div class="share-app-layout">
-<aside class="share-sidebar" aria-label="Public share sections">
-  <div class="share-sidebar-label">Categories</div>
-  <button class="share-sidebar-item active" type="button" aria-current="page">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M3.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5M11.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </svg>
+<div id="app-body" class="share-app-layout">
+<aside id="app-sidebar" class="share-sidebar" aria-label="Public share sections">
+  <div class="sb-actions">
+    <a id="share-new-link" class="sb-btn-new share-sidebar-gate" href="https://mypocketdrive.online/#/signup">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>New</span>
+    </a>
+  </div>
+  <div class="sb-label">Categories</div>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="4" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="14" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="14" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.7"/></svg></span>
+    <span>Dashboard</span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M3.5 7.5h6l1.7 2H20.5v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-10.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
+    <span>My Files</span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="11" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M9 20h6M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+    <span>Computers</span>
+    <span class="sb-chevron"><svg viewBox="0 0 24 24" fill="none"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8.5 18H18a4 4 0 0 0 .5-8 6 6 0 0 0-11.4-1.8A5 5 0 0 0 8.5 18Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span>Cloud</span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8 3h8v10a4 4 0 0 1-8 0V3Z" stroke="currentColor" stroke-width="1.7"/><path d="M10 7h4M10 18v3h4v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+    <span>USB Backup</span>
+    <span class="sb-chevron"><svg viewBox="0 0 24 24" fill="none"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M7 11h2M15 13h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+    <span>External Storage</span>
+    <span class="sb-chevron"><svg viewBox="0 0 24 24" fill="none"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  </button>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M10 4h4M8 7l.7 12h6.6L16 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span>Bin</span>
+  </button>
+  <div class="sb-divider"></div>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.5 20c.7-3.2 2.6-5 5.5-5 1.1 0 2.1.3 2.9.8M17 8v8M13 12h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+    <span>Referrals</span>
+  </button>
+  <button class="sb-nav-item active-nav" type="button" aria-current="page">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5M11.5 19.5c.7-3 2.4-4.5 4.5-4.5s3.8 1.5 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>
     <span>Shared with me</span>
   </button>
-  <div class="share-sidebar-spacer"></div>
-  <div class="share-sidebar-e2e">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-      <rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" stroke-width="1.8"/>
-      <path d="M12 14v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    </svg>
-    <span>End-to-end encrypted cloud</span>
+  <button class="sb-nav-item share-sidebar-gate" type="button">
+    <span class="sb-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" stroke-width="1.7"/></svg></span>
+    <span>Storage Subscriptions</span>
+  </button>
+  <div class="sb-storage">
+    <div class="sb-storage-label"><span>Storage</span><span>-</span></div>
+    <div class="sb-storage-track"><div class="sb-storage-fill zero-width"></div></div>
+    <div class="sb-storage-used">0% used</div>
+    <div class="sb-e2e">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M12 14v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>End-to-end encrypted cloud</span>
+    </div>
   </div>
 </aside>
 <main class="share-shell">
@@ -120,7 +165,7 @@
   <a id="share-signup-link" class="promo-cta" href="https://mypocketdrive.online/#/signup">Create free account</a>
 </aside>
 <div id="toast"></div>
-<script src="/static/share.js?v=20260515appmatch1" defer></script>
+<script src="/static/share.js?v=20260515appmatch2" defer></script>
 </body>
 </html>
 

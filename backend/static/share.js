@@ -36,10 +36,17 @@ function appShareHref(target,shareKey=''){
 function wireShareAuthLinks(shareKey=''){
  const signIn=document.getElementById('share-signin-link');
  const signUp=document.getElementById('share-signup-link');
+ const newLink=document.getElementById('share-new-link');
  const errorSignIn=document.getElementById('share-error-signin-link');
  if(signIn)signIn.href=appShareHref('login',shareKey);
  if(signUp)signUp.href=appShareHref('signup',shareKey);
+ if(newLink)newLink.href=appShareHref('signup',shareKey);
  if(errorSignIn)errorSignIn.href=appShareHref('login',shareKey);
+ document.querySelectorAll('button.share-sidebar-gate').forEach(el=>{
+  el.addEventListener('click',()=>{
+   window.location.href=appShareHref('login',shareKey);
+  },{once:false});
+ });
 }
 function wireShareSearch(){
  const input=document.getElementById('share-search-input');
