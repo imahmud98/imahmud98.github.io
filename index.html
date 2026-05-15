@@ -6355,6 +6355,7 @@ const _NAS_SESSION_DEFAULT_PARALLEL   = 3;
 const _NAS_PUBLIC_INGRESS_CHUNK_SIZE  = 1 * 1024 * 1024; // public backend tunnel: keep WS frames small and stable
 const _NAS_P2P_UPLOAD_CHUNK_SIZE      = 64 * 1024;       // WebRTC SCTP-safe message size for browser <-> aiortc
 const _NAS_P2P_FAIL_COOLDOWN_MS     = 10 * 60 * 1000;  // avoid repeated cross-LAN P2P stalls before falling back safely
+const _NAS_P2P_TUNNEL_STATUS_TTL_MS = 5000;             // avoid POST /p2p/session spam while the agent WS reconnects
 const _NAS_PUBLIC_INGRESS_PARALLEL    = 1;               // one backend tunnel cannot safely carry parallel upload frames
 const _NAS_TRANSFER_TUNNEL_CHUNK_SIZE = 2 * 1024 * 1024; // Cloudflare-hosted agent tunnel: smaller frames avoid late stalls
 const _NAS_TRANSFER_TUNNEL_PARALLEL   = 2;               // fast path; 429/503 backpressure below slows individual chunks
@@ -6623,8 +6624,34 @@ function _nasP2PNeedsTurnMessage(){
   return 'P2P across different networks needs a TURN relay; using secure public transfer';
 }
 
+let _nasP2PTunnelStatusCache = {ts:0, map:new Map()};
+async function _nasP2PTunnelLive(machineId){
+  const mid = String(machineId || '').trim();
+  if(!mid) return true;
+  const now = Date.now();
+  if(now - _nasP2PTunnelStatusCache.ts < _NAS_P2P_TUNNEL_STATUS_TTL_MS && _nasP2PTunnelStatusCache.map.has(mid)){
+    return !!_nasP2PTunnelStatusCache.map.get(mid);
+  }
+  try{
+    const status = await api('GET', '/nas/tunnel/status');
+    const map = new Map();
+    for(const tunnel of (status && status.tunnels || [])){
+      map.set(String(tunnel.machine_id || ''), !!(tunnel.live || tunnel.tunnel_connected));
+    }
+    _nasP2PTunnelStatusCache = {ts:Date.now(), map};
+    return map.has(mid) ? !!map.get(mid) : true;
+  }catch(_){
+    return true;
+  }
+}
+
 async function _tryNasP2PFastPath(meta){
   if(!_browserSupportsNasP2P()) return {ok:false, reason:'WebRTC unavailable'};
+  if(_nasP2PCoolingDown(meta || {})) return {ok:false, reason:'Recent P2P failure; using secure public transfer'};
+  if(await _nasP2PTunnelLive(meta?.machine_id) === false){
+    _rememberNasP2PFailure(meta || {}, 'Agent signaling tunnel is offline');
+    return {ok:false, reason:'Agent signaling tunnel is offline'};
+  }
   try{
     const session = await api('POST', '/nas/p2p/session', meta || {});
     if(!session || !session.enabled || !session.session_id){
@@ -6649,6 +6676,7 @@ async function _tryNasP2PFastPath(meta){
     }
     return {ok:false, reason:'P2P timed out'};
   }catch(e){
+    _rememberNasP2PFailure(meta || {}, e && e.message ? e.message : 'P2P unavailable');
     return {ok:false, reason:e && e.message ? e.message : 'P2P unavailable'};
   }
 }
@@ -6656,7 +6684,17 @@ async function _tryNasP2PFastPath(meta){
 async function _prepareNasP2PChannel(meta, options={}){
   if(!_browserSupportsNasP2P()) throw new Error('WebRTC unavailable');
   if(_nasP2PCoolingDown(meta || {})) throw new Error('Recent P2P timeout; using secure public transfer');
-  const sessionMeta = options.sessionMeta || await api('POST', '/nas/p2p/session', meta || {});
+  if(await _nasP2PTunnelLive(meta?.machine_id) === false){
+    _rememberNasP2PFailure(meta || {}, 'Agent signaling tunnel is offline');
+    throw new Error('Agent signaling tunnel is offline');
+  }
+  let sessionMeta;
+  try{
+    sessionMeta = options.sessionMeta || await api('POST', '/nas/p2p/session', meta || {});
+  }catch(e){
+    _rememberNasP2PFailure(meta || {}, e && e.message ? e.message : e);
+    throw e;
+  }
   if(!sessionMeta || !sessionMeta.enabled || !sessionMeta.session_id){
     throw new Error(sessionMeta?.reason || 'P2P session unavailable');
   }
