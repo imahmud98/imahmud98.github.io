@@ -89,11 +89,12 @@ function renderFiles(){
   document.body.classList.toggle('single-share-page',single);
   const panel=document.getElementById('panel-files');
   panel.classList.toggle('single-share',single);
-  document.getElementById('share-label').textContent=single?(entries[0].original_name||meta.label||'Shared file'):(meta.label||'Shared files');
+  document.getElementById('share-label').textContent=single?(entries[0].original_name||meta.label||'Shared file'):'Shared with me';
   const parts=[];
   if(meta.expires_at)parts.push(`Expires ${fmtDate(meta.expires_at)}`);
   if(meta.downloads_remaining!==null&&meta.downloads_remaining!==undefined)parts.push(`${meta.downloads_remaining} download${meta.downloads_remaining!==1?'s':''} remaining`);
   if(meta.access_mode==='restricted')parts.push('Restricted');
+  if(!single && meta.label)parts.unshift(meta.label);
   document.getElementById('share-meta').textContent=single?'':(parts.join(' - ')||`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`);
   document.getElementById('file-count').textContent=`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`;
   const downloadAllBtn=document.getElementById('download-all-btn');
