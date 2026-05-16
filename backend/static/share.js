@@ -118,7 +118,6 @@ function renderFiles(){
   const panel=document.getElementById('panel-files');
   panel.classList.toggle('single-share',single);
   document.getElementById('share-label').textContent='Shared with me';
-  document.getElementById('file-count').textContent=`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`;
   const downloadAllBtn=document.getElementById('download-all-btn');
   if(downloadAllBtn){downloadAllBtn.title=single?'Download':'Download all';downloadAllBtn.setAttribute('aria-label',single?'Download':'Download all')}
   document.getElementById('share-list-view-btn')?.classList.toggle('active-nav',State.viewMode==='list');
