@@ -15,7 +15,7 @@ const ShareCrypto={
  async decryptBlob(encryptedBlob,fileKeyRaw){const buf=new Uint8Array(encryptedBlob);if(buf.length<28)throw new Error('Encrypted blob is corrupted');const iv=buf.slice(16,28);const ct=buf.slice(28);const cryptoKey=await crypto.subtle.importKey('raw',fileKeyRaw,{name:'AES-GCM',length:256},false,['decrypt']);return crypto.subtle.decrypt({name:'AES-GCM',iv},cryptoKey,ct)}
 };
 
-const State={shareId:null,shareMeta:null,shareKey:null,rawShareKey:null,apiBase:'',searchQuery:''};
+const State={shareId:null,shareMeta:null,shareKey:null,rawShareKey:null,apiBase:'',searchQuery:'',viewMode:'grid'};
 const SHARE_ID_RE=/^[A-Za-z0-9_-]{32,64}$/;
 const SHARE_KEY_RE=/^(pw|[A-Za-z0-9_-]{16,256})$/;
 const DEFAULT_APP_BASE='https://mypocketdrive.online';
@@ -57,9 +57,28 @@ function wireShareSearch(){
   if(State.shareMeta)renderFiles();
  });
 }
+function wireShareViewToggle(){
+ const listBtn=document.getElementById('share-list-view-btn');
+ const gridBtn=document.getElementById('share-grid-view-btn');
+ if(listBtn&&listBtn.dataset.bound!=='1'){
+  listBtn.dataset.bound='1';
+  listBtn.addEventListener('click',()=>{
+   State.viewMode='list';
+   renderFiles();
+  });
+ }
+ if(gridBtn&&gridBtn.dataset.bound!=='1'){
+  gridBtn.dataset.bound='1';
+  gridBtn.addEventListener('click',()=>{
+   State.viewMode='grid';
+   renderFiles();
+  });
+ }
+}
 
 async function init(){
  wireShareSearch();
+ wireShareViewToggle();
  const FLY_BACKEND='https://mypocketdrive-backend.fly.dev';
  const isStatic=location.hostname.endsWith('github.io')||location.hostname==='mypocketdrive.online';
  if(isStatic){try{const r=await fetch('/api.txt',{cache:'no-store'});if(r.ok){const t=(await r.text()).trim();if(t.startsWith('http'))State.apiBase=t.replace(/\/$/,'')}}catch(e){} if(!State.apiBase)State.apiBase=FLY_BACKEND}else{State.apiBase=location.origin}
@@ -88,7 +107,9 @@ async function loadShareMeta(){
 
 async function handlePasswordSubmit(){const pw=document.getElementById('share-password').value.trim();const errEl=document.getElementById('pw-err');const btn=document.getElementById('pw-btn');if(!pw){errEl.textContent='Please enter the password';errEl.classList.remove('hidden');return}errEl.classList.add('hidden');btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Unlocking';try{State.shareKey=await ShareCrypto.deriveShareKeyFromPassword(pw,State.shareMeta.kdf_params);const first=State.shareMeta.wrapped_keys[0];await ShareCrypto.unwrapFileKey(first.wrapped_file_key,first.key_iv,State.shareKey);renderFiles()}catch(e){errEl.textContent='Wrong password or corrupted link';errEl.classList.remove('hidden');btn.disabled=false;btn.textContent='Unlock'}}
 
-function createDownloadButton(idx){const button=document.createElement('button');button.className='btn btn-ghost';button.textContent='Download';button.addEventListener('click',()=>downloadSingle(idx));return button}
+function downloadIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'}
+function imageIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.4" stroke="currentColor" stroke-width="1.8"/><path d="m6.7 16 3.6-3.6a1.2 1.2 0 0 1 1.7 0l2.1 2.1.9-.9a1.2 1.2 0 0 1 1.7 0L20 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.7" cy="9" r="1.2" fill="currentColor"/></svg>'}
+function createDownloadButton(idx){const button=document.createElement('button');button.className='share-row-download';button.type='button';button.title='Download';button.setAttribute('aria-label','Download');button.innerHTML=downloadIconSvg();button.addEventListener('click',e=>{e.stopPropagation();downloadSingle(idx)});return button}
 function renderFiles(){
   const meta=State.shareMeta;
   const entries=Array.isArray(meta.wrapped_keys)?meta.wrapped_keys:[];
@@ -96,18 +117,16 @@ function renderFiles(){
   document.body.classList.toggle('single-share-page',single);
   const panel=document.getElementById('panel-files');
   panel.classList.toggle('single-share',single);
-  document.getElementById('share-label').textContent=single?(entries[0].original_name||meta.label||'Shared file'):'Shared with me';
-  const parts=[];
-  if(meta.expires_at)parts.push(`Expires ${fmtDate(meta.expires_at)}`);
-  if(meta.downloads_remaining!==null&&meta.downloads_remaining!==undefined)parts.push(`${meta.downloads_remaining} download${meta.downloads_remaining!==1?'s':''} remaining`);
-  if(meta.access_mode==='restricted')parts.push('Restricted');
-  if(!single && meta.label)parts.unshift(meta.label);
-  document.getElementById('share-meta').textContent=single?'':(parts.join(' - ')||`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`);
+  document.getElementById('share-label').textContent='Shared with me';
   document.getElementById('file-count').textContent=`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`;
   const downloadAllBtn=document.getElementById('download-all-btn');
-  if(downloadAllBtn)downloadAllBtn.textContent=single?'Download':'Download all';
+  if(downloadAllBtn){downloadAllBtn.title=single?'Download':'Download all';downloadAllBtn.setAttribute('aria-label',single?'Download':'Download all')}
+  document.getElementById('share-list-view-btn')?.classList.toggle('active',State.viewMode==='list');
+  document.getElementById('share-grid-view-btn')?.classList.toggle('active',State.viewMode==='grid');
   const list=document.getElementById('file-list');
   list.replaceChildren();
+  list.classList.toggle('grid-mode',!single&&State.viewMode==='grid');
+  list.classList.toggle('list-mode',single||State.viewMode==='list');
   if(single){
     renderSinglePreview(entries[0],list);
     showPanel('files');
@@ -125,15 +144,29 @@ function renderFiles(){
     return;
   }
   visibleEntries.forEach(({entry,idx})=>{
-    const row=document.createElement('div');row.className='file-row';
+    const row=document.createElement('div');row.className=State.viewMode==='grid'?'file-row fade-in share-file-card':'file-row fade-in share-file-list-row';
+    row.tabIndex=0;
+    row.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();downloadSingle(idx)}});
+    if(State.viewMode==='grid'){
+      const thumb=document.createElement('div');thumb.className='fr-thumb-wrap';
+      const placeholder=document.createElement('div');placeholder.className='thumb-placeholder';placeholder.innerHTML=imageIconSvg();
+      thumb.appendChild(placeholder);
+      const info=document.createElement('div');info.className='fr-info';
+      const name=document.createElement('div');name.className='fr-name';name.textContent=entry.original_name||'File';
+      const metaLine=document.createElement('div');metaLine.className='fr-size';metaLine.textContent=`${entry.size?fmtSize(entry.size):''}${entry.size?' - ':''}shared`;
+      info.appendChild(name);info.appendChild(metaLine);
+      const btnWrap=document.createElement('div');btnWrap.className='fr-acts';btnWrap.id=`file-btn-${idx}`;btnWrap.appendChild(createDownloadButton(idx));
+      row.appendChild(thumb);row.appendChild(info);row.appendChild(btnWrap);list.appendChild(row);
+      return;
+    }
     const main=document.createElement('div');main.className='file-main';
-    const icon=document.createElement('div');icon.className='file-icon';icon.textContent=fileIcon(entry.original_name||'');
+    const icon=document.createElement('div');icon.className='file-icon';icon.innerHTML=imageIconSvg();
     const name=document.createElement('div');name.className='file-name';name.textContent=entry.original_name||'File';
     main.appendChild(icon);main.appendChild(name);
-    const access=document.createElement('div');access.className='file-access';access.textContent='Viewer';
+    const date=document.createElement('div');date.className='file-date';date.textContent=fmtDate(entry.created_at||entry.updated_at||meta.created_at||'').replace(/,.*$/,'');
     const size=document.createElement('div');size.className='file-size';size.textContent=entry.size?fmtSize(entry.size):'';
     const btnWrap=document.createElement('div');btnWrap.id=`file-btn-${idx}`;btnWrap.appendChild(createDownloadButton(idx));
-    row.appendChild(main);row.appendChild(access);row.appendChild(size);row.appendChild(btnWrap);list.appendChild(row);
+    row.appendChild(main);row.appendChild(date);row.appendChild(size);row.appendChild(btnWrap);list.appendChild(row);
   });
   showPanel('files');
 }
@@ -534,7 +567,7 @@ async function downloadAll(){
   const allBtn=document.getElementById('download-all-btn');
   allBtn.disabled=true;
   allBtn.innerHTML='<span class="spinner"></span> Downloading';
-  try{await decryptAndSave(browserEntries);toast(nativeEntries.length?'Remaining files downloaded':'All files downloaded','success')}catch(e){toast('Download failed: '+e.message,'error')}finally{allBtn.disabled=false;allBtn.textContent=(State.shareMeta?.wrapped_keys?.length===1?'Download':'Download all');document.getElementById('progress-panel').style.display='none'}
+  try{await decryptAndSave(browserEntries);toast(nativeEntries.length?'Remaining files downloaded':'All files downloaded','success')}catch(e){toast('Download failed: '+e.message,'error')}finally{allBtn.disabled=false;allBtn.innerHTML=downloadIconSvg();allBtn.title=State.shareMeta?.wrapped_keys?.length===1?'Download':'Download all';allBtn.setAttribute('aria-label',allBtn.title);document.getElementById('progress-panel').style.display='none'}
 }
 async function decryptAndSave(entries){
   const progressPanel=document.getElementById('progress-panel');
