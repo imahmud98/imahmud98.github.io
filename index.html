@@ -10001,7 +10001,7 @@ function showView(name){
 let _sensitiveUserActionUntil=0;
 function _markSensitiveUserAction(){_sensitiveUserActionUntil=Date.now()+20000;}
 function _isSensitiveFlowVisible(){
-  return ['upload-modal','download-modal','usb-backup-modal'].some(id=>{
+  return ['upload-modal','download-modal','usb-backup-modal','share-modal'].some(id=>{
     const el=document.getElementById(id);
     return el && !el.classList.contains('hidden');
   });
@@ -11192,9 +11192,8 @@ const ShareKeyMgr = {
 // We need the raw bytes to wrap it. We export from the cached CryptoKey.
 async function _getCurrentFileKeyCryptoKey() {
   if (!S._password) {
-    throw new Error(
-      'Encryption key not in memory. Please sign out and sign in again to enable sharing.'
-    );
+    const unlocked = await ensureEncryptionUnlocked('share encrypted files');
+    if (!unlocked) throw new Error('Encrypted files are locked.');
   }
   // Ensure key is in cache
   const key = await E2E._deriveKey(S._password);
@@ -11218,7 +11217,10 @@ async function _getCurrentFileKeyCryptoKey() {
 // Ã¢"â‚¬Ã¢"â‚¬ Share modal state Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬
 
 async function _exportDirectCloudShareWrapKey(manifest) {
-  if (!S._password) throw new Error('Unlock encryption before sharing encrypted cloud files.');
+  if (!S._password) {
+    const unlocked = await ensureEncryptionUnlocked('share encrypted cloud files');
+    if (!unlocked) throw new Error('Encrypted files are locked.');
+  }
   if (!manifest?.kdf?.salt) throw new Error('Encrypted cloud share metadata is missing.');
   const salt = DirectCloudE2EE.b64ToBytes(manifest.kdf.salt);
   const mat = await crypto.subtle.importKey('raw', new TextEncoder().encode(S._password), 'PBKDF2', false, ['deriveKey']);
@@ -11243,8 +11245,11 @@ const ShareState = {
 // Ã¢"â‚¬Ã¢"â‚¬ Open share dialog Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬Ã¢"â‚¬
 async function openShareDialog(fileIds, folderId=null) {
   if (!S._password) {
-    toast('Sign out and sign in again to enable sharing (key not in memory)', 'error');
-    return;
+    const unlocked = await ensureEncryptionUnlocked('share encrypted files');
+    if (!unlocked) {
+      toast('Unlock encryption to share these files.', 'error');
+      return;
+    }
   }
   ShareState.pendingFileIds = fileIds;
   ShareState.pendingFolderId = folderId;
