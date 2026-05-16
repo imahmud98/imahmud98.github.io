@@ -1137,6 +1137,7 @@
 .mob-drawer-storage-label {
   font-family: Roboto, -apple-system, sans-serif;
   font-size: 12px; font-weight: 500; color: #6E6E73; margin-bottom: 8px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
 }
 .mob-drawer-storage-bar {
   height: 4px; background: #E5E5EA; border-radius: 2px; overflow: hidden; margin-bottom: 6px;
@@ -2113,6 +2114,37 @@
 }
 #view-app .sb-storage-track{height:7px !important;background:rgba(15,118,110,.12) !important;border-radius:999px !important;}
 #view-app .sb-storage-fill{background:linear-gradient(90deg,var(--pk-teal),#5eead4) !important;}
+#view-app .storage-tier-badge,
+.mob-drawer-storage .storage-tier-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  min-height:22px;
+  padding:2px 7px 2px 5px;
+  border-radius:999px;
+  border:1px solid rgba(15,118,110,.18);
+  background:#fff;
+  color:var(--pk-teal-700,#0f766e);
+  font-size:10px;
+  font-weight:650;
+  line-height:1;
+  white-space:nowrap;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+}
+#view-app .storage-tier-badge svg,
+.mob-drawer-storage .storage-tier-badge svg{width:15px;height:15px;display:block;flex:0 0 auto;}
+#view-app .storage-tier-badge.premium,
+.mob-drawer-storage .storage-tier-badge.premium{
+  border-color:rgba(15,118,110,.25);
+  background:linear-gradient(180deg,#ecfdf5,#fff);
+  color:#0f766e;
+}
+#view-app .storage-tier-badge.free,
+.mob-drawer-storage .storage-tier-badge.free{
+  border-color:rgba(15,118,110,.16);
+  background:linear-gradient(180deg,#fff,#f4fffc);
+  color:#334155;
+}
 #view-app .sb-e2e{
   color:var(--pk-teal-700) !important;
   border-top:1px solid rgba(15,118,110,.12) !important;
@@ -3099,16 +3131,41 @@ async function pollDashboardUntilChanged(expectedUsedB, maxAttempts, intervalMs)
   }
 }
 
+function normalizeStorageTier(tier){
+  const v=String(tier||S._storageTier||'free').toLowerCase();
+  if(v.includes('premium')||v.includes('pro'))return 'premium';
+  if(v.includes('trial'))return 'trial';
+  return 'free';
+}
+function storageTierIconSvg(tier){
+  if(tier==='premium'){
+    return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 9.5 8.2 16h7.6L19 9.5l-4.3 2.4L12 6.5l-2.7 5.4L5 9.5Z" fill="#CCFBF1" stroke="#0F766E" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.3 18h7.4" stroke="#111827" stroke-width="1.7" stroke-linecap="round"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.5 7.5h7.2l3.8 4.5-3.8 4.5H6.5V7.5Z" fill="#CCFBF1" stroke="#0F766E" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.2 12h4.9" stroke="#111827" stroke-width="1.7" stroke-linecap="round"/></svg>';
+}
+function renderStorageTierBadge(id,tier){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const normalized=normalizeStorageTier(tier);
+  const label=normalized==='premium'?'Premium':normalized==='trial'?'Trial':'Free';
+  el.className='storage-tier-badge '+(normalized==='premium'?'premium':'free');
+  el.innerHTML=storageTierIconSvg(normalized)+'<span>'+esc(label)+'</span>';
+  el.title=label+' cloud account';
+}
+
 // â”€â”€ Standalone storage UI updater (no API call needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateStorageUI(usedBytes, quotaBytes, tier){
-  // usedBytes/quotaBytes are numbers. tier is optional string.
+  // Cloud quota only: visible text is always available cloud space / total cloud space.
+  usedBytes = Math.max(0, Number(usedBytes)||0);
+  quotaBytes = Math.max(0, Number(quotaBytes)||0);
+  usedBytes = quotaBytes > 0 ? Math.min(usedBytes, quotaBytes) : usedBytes;
   const pct = quotaBytes > 0 ? Math.min(100, (usedBytes/quotaBytes)*100) : 0;
-  const remaining = Math.max(0, quotaBytes - usedBytes);
+  const remaining = quotaBytes > 0 ? Math.max(0, quotaBytes - usedBytes) : 0;
 
-  const usedH  = fmtStorageSize(usedBytes);
-  const quotaH = fmtStorageSize(quotaBytes);
-  const remH   = fmtStorageSize(remaining);
+  const quotaH = quotaBytes > 0 ? fmtStorageSize(quotaBytes) : '-';
+  const remH   = quotaBytes > 0 ? fmtStorageSize(remaining) : '-';
   const pctRnd = Math.round(pct);
+  const tierName = normalizeStorageTier(tier);
 
   // Desktop sidebar
   const sbFill   = document.getElementById('sb-storage-fill');
@@ -3125,8 +3182,9 @@ function updateStorageUI(usedBytes, quotaBytes, tier){
       sbFill.style.background = 'linear-gradient(90deg,#EF4444,#B91C1C)';
     }
   }
-  if(sbText)   sbText.textContent = usedH+' / '+quotaH;
-  if(sbDetail) sbDetail.textContent = pctRnd+'% used - '+remH+' free';
+  if(sbText)   sbText.textContent = remH+' / '+quotaH;
+  if(sbDetail) sbDetail.textContent = quotaBytes > 0 ? pctRnd+'% used' : 'Cloud space unavailable';
+  renderStorageTierBadge('sb-tier-badge', tierName);
 
   // Mobile drawer
   const mobFill = document.getElementById('mob-storage-fill');
@@ -3137,12 +3195,13 @@ function updateStorageUI(usedBytes, quotaBytes, tier){
     if(pct>=90) mobFill.classList.add('danger');
     else if(pct>=70) mobFill.classList.add('warn');
   }
-  if(mobText) mobText.textContent = usedH+' / '+quotaH+' - '+pctRnd+'% used - '+remH+' free';
+  if(mobText) mobText.textContent = remH+' / '+quotaH+' available';
+  renderStorageTierBadge('mob-tier-badge', tierName);
 
   // Store current values for delta calculations
   S._storageUsed  = usedBytes;
   S._storageQuota = quotaBytes;
-  S._storageTier  = tier || S._storageTier || 'free';
+  S._storageTier  = tierName;
 }
 
 // Apply a storage delta (positive = added bytes, negative = removed)
@@ -3259,14 +3318,8 @@ function renderDashboard(d){
     // Update all UI - desktop sidebar + mobile drawer
     updateStorageUI(usedB, quotaB, tier);
 
-    // Update tier badge separately (not handled in updateStorageUI)
-    const sbBadge = document.getElementById('sb-tier-badge');
-    if(sbBadge){
-      const t=tier.charAt(0).toUpperCase()+tier.slice(1);
-      if(tier==='premium'){sbBadge.style.cssText='display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:#f5f3ff;color:#6d28d9;white-space:nowrap;flex-shrink:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;';sbBadge.textContent='â­ '+t;}
-      else if(tier==='trial'){sbBadge.style.cssText='display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:#fef9c3;color:#854d0e;white-space:nowrap;flex-shrink:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;';sbBadge.textContent='â­ '+t;}
-      else{sbBadge.style.cssText='display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:#f1f3f4;color:#5f6368;white-space:nowrap;flex-shrink:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;';sbBadge.textContent=t;}
-    }
+    renderStorageTierBadge('sb-tier-badge', tier);
+    renderStorageTierBadge('mob-tier-badge', tier);
   })();
 
   // populate referral link after rendering
@@ -8022,6 +8075,7 @@ async function processUploadsRouted(){
       const item = S.uploadQueue[uploadIndex];
       if(item.status === 'cancelled' || item.status !== 'pending') continue;
       const target = forceCloud ? 'cloud' : await _resolveStorageTarget(item.file.size);
+      item._storageTarget = target;
       const badge = document.getElementById('uq-target-badge');
       if(badge){
         badge.style.display='inline';
@@ -8056,10 +8110,12 @@ async function processUploadsRouted(){
   if(S.activeSection === 'cloud') await loadCloudFiles();
   else await loadFiles();
   const uploadedBytes = S.uploadQueue
-    .filter(i=>i.status==='done')
+    .filter(i=>i.status==='done' && i._storageTarget === 'cloud')
     .reduce((s,i)=>s+(i.billableSize || i.file.size || 0),0);
-  if(uploadedBytes > 0) applyStorageDelta(uploadedBytes);
-  pollDashboardUntilChanged(S._storageUsed, 8, 2000).catch(()=>{});
+  if(uploadedBytes > 0){
+    applyStorageDelta(uploadedBytes);
+    pollDashboardUntilChanged(S._storageUsed, 8, 2000).catch(()=>{});
+  }
   // Restore dashboard upload destination if this batch was a cloud-section
   // override. Without this, uploading from the cloud section permanently
   // flips routing to cloud even if the user has NAS selected in the dashboard.
@@ -12334,7 +12390,7 @@ async function revokeShare(shareId) {
       <div class="sb-storage">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:nowrap;min-width:0;overflow:hidden;">
           <span style="font-size:13px;font-weight:600;color:#202124;white-space:nowrap;">Storage</span>
-          <span id="sb-tier-badge" style="display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:#f1f3f4;color:#5f6368;white-space:nowrap;flex-shrink:0;max-width:56px;overflow:hidden;text-overflow:ellipsis;"></span>
+          <span id="sb-tier-badge" class="storage-tier-badge free"></span>
           <span id="sb-storage-text" style="margin-left:auto;font-size:10px;color:#5f6368;font-weight:500;text-align:right;white-space:nowrap;min-width:0;">-</span>
         </div>
         <div class="sb-storage-track" style="height:6px;border-radius:99px;background:#e0e0e0;overflow:hidden;margin-bottom:5px;">
@@ -14355,7 +14411,7 @@ async function handleSaveProfile(){
 
   <!-- Ã¢"â‚¬Ã¢"â‚¬ Storage bar Ã¢"â‚¬Ã¢"â‚¬ -->
   <div class="mob-drawer-storage" style="margin-top:auto;">
-    <div class="mob-drawer-storage-label" id="mob-storage-label-new">Storage</div>
+    <div class="mob-drawer-storage-label" id="mob-storage-label-new"><span>Storage</span><span id="mob-tier-badge" class="storage-tier-badge free"></span></div>
     <div class="mob-drawer-storage-bar">
       <div class="mob-drawer-storage-bar-fill" id="mob-storage-fill" style="width:0%"></div>
     </div>
@@ -14393,15 +14449,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')mobNavClose(
       if (pct >= 90) mobFill.classList.add('danger');
       else if (pct >= 70) mobFill.classList.add('warn');
     }
-    // Show "used / quota" text from the desktop storage widget
+    // Mirror the desktop cloud-available value only.
     var storageStr = '';
     if (desktopText && desktopText.textContent && desktopText.textContent !== '\u2014') {
       storageStr = desktopText.textContent;
     }
-    if (desktopDetail && desktopDetail.textContent) {
-      storageStr = storageStr ? storageStr + ' \u00b7 ' + desktopDetail.textContent : desktopDetail.textContent;
-    }
-    mobText.textContent = storageStr || '\u2014';
+    mobText.textContent = storageStr ? storageStr + ' available' : '\u2014';
   }
   setInterval(syncMobStorage, 2000);
   window.addEventListener('load', function(){ setTimeout(syncMobStorage, 1500); });
