@@ -2591,12 +2591,30 @@ function startSessionTimer(){
 // ROUTER
 // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 const SHARE_CONTEXT_STORAGE='pockio_pending_share_context';
+const REFERRAL_CONTEXT_STORAGE='pockio_pending_referral_code';
 const SHARE_ID_RE=/^[A-Za-z0-9_-]{32,64}$/;
 const SHARE_KEY_RE=/^(pw|[A-Za-z0-9_-]{16,256})$/;
+const REFERRAL_CODE_RE=/^[A-Z0-9_-]{4,32}$/i;
 function getHash(){return location.hash.replace(/^#\/?/,'')||'';}
 function goTo(path){location.hash='#/'+path;}
 function hashBase(h=getHash()){return String(h||'').split('?')[0].replace(/^\/+/,'');}
 function hashParams(h=getHash()){const i=String(h||'').indexOf('?');return new URLSearchParams(i>=0?String(h).slice(i+1):'');}
+function _captureReferralContext(){
+  const fromHash=(hashParams().get('ref')||'').trim();
+  const fromSearch=(new URLSearchParams(location.search).get('ref')||'').trim();
+  const code=(fromHash||fromSearch).toUpperCase();
+  if(!REFERRAL_CODE_RE.test(code))return '';
+  try{sessionStorage.setItem(REFERRAL_CONTEXT_STORAGE,code);}catch(_){}
+  return code;
+}
+function _pendingReferralCode(){
+  const captured=_captureReferralContext();
+  if(captured)return captured;
+  try{
+    const code=String(sessionStorage.getItem(REFERRAL_CONTEXT_STORAGE)||'').trim().toUpperCase();
+    return REFERRAL_CODE_RE.test(code)?code:'';
+  }catch(_){return '';}
+}
 function _storeSharedLinkKey(shareId,key){
   if(!SHARE_ID_RE.test(String(shareId||''))||!SHARE_KEY_RE.test(String(key||'')))return;
   try{
@@ -2638,6 +2656,8 @@ function _authHashForShare(target,ctx){
   if(!ctx||!SHARE_ID_RE.test(ctx.shareId||''))return target;
   const params=new URLSearchParams({share:ctx.shareId});
   if(ctx.key&&SHARE_KEY_RE.test(ctx.key))params.set('k',ctx.key);
+  const ref=_pendingReferralCode();
+  if(target==='signup'&&ref)params.set('ref',ref);
   return `${target}?${params.toString()}`;
 }
 function _initialAppSectionFromHash(){
@@ -10847,7 +10867,7 @@ async function handleSignupComplete(e){
   e.preventDefault();const btn=document.getElementById('signup-complete-btn');if(!btn||btn.disabled)return;
   btn.disabled=true;btn.textContent='Creating account...';setErr('signup-complete-err','');
   try{
-    await api('POST','/auth/signup/complete',{pending_signup_token:S.pendingSignupToken,username:_signupUsername(),phone_country_code:document.getElementById('su-country-code')?.value||'',phone_number:document.getElementById('su-phone')?.value||'',phone_e164:_signupPhoneE164('su')});
+    await api('POST','/auth/signup/complete',{pending_signup_token:S.pendingSignupToken,username:_signupUsername(),phone_country_code:document.getElementById('su-country-code')?.value||'',phone_number:document.getElementById('su-phone')?.value||'',phone_e164:_signupPhoneE164('su'),referral_code:_pendingReferralCode()||undefined});
     const ctx=_pendingShareContext();
     S.pendingSignupToken='';S.signupUsernameAvailable=false;toast('Account created successfully. Please log in.','success');goTo(ctx?_authHashForShare('login',ctx):'login');
   }catch(err){setErr('signup-complete-err','Signup failed. Please check your details and try again.');}

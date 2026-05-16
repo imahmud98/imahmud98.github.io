@@ -30,6 +30,8 @@ function appShareHref(target,shareKey=''){
  const params=new URLSearchParams();
  if(SHARE_ID_RE.test(State.shareId||''))params.set('share',State.shareId);
  if(SHARE_KEY_RE.test(shareKey||''))params.set('k',shareKey);
+ const ref=String(State.shareMeta?.owner_referral_code||'').trim();
+ if(target==='signup'&&/^[A-Z0-9_-]{4,32}$/i.test(ref))params.set('ref',ref);
  const q=params.toString();
  return `${appBaseUrl()}/#/${target}${q?'?'+q:''}`;
 }
@@ -100,6 +102,7 @@ async function loadShareMeta(){
   if(res.status===410){const d=await res.json().catch(()=>({}));showError('This shared item is no longer available',d.detail||'This link expired or reached its download limit.');return}
   if(!res.ok){showError('Error','Could not load share info. Try again.');return}
   State.shareMeta=await res.json();
+  wireShareAuthLinks((new URLSearchParams(location.search).get('k')||location.hash.replace('#','')||'').trim());
   if(State.shareMeta.is_password_protected&&!State.shareKey){showPanel('password');return}
   renderFiles();
  }catch(e){showError('Network error','Could not reach server: '+e.message)}
@@ -110,6 +113,12 @@ async function handlePasswordSubmit(){const pw=document.getElementById('share-pa
 function downloadIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'}
 function imageIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.4" stroke="currentColor" stroke-width="1.8"/><path d="m6.7 16 3.6-3.6a1.2 1.2 0 0 1 1.7 0l2.1 2.1.9-.9a1.2 1.2 0 0 1 1.7 0L20 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.7" cy="9" r="1.2" fill="currentColor"/></svg>'}
 function createDownloadButton(idx){const button=document.createElement('button');button.className='fr-act-btn share-row-download';button.type='button';button.title='Download';button.setAttribute('aria-label','Download');button.innerHTML=downloadIconSvg();button.addEventListener('click',e=>{e.stopPropagation();downloadSingle(idx)});return button}
+function bindPreviewOpen(row,idx){
+ row.addEventListener('click',()=>openSharePreview(idx));
+ row.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();openSharePreview(idx)}});
+ row.setAttribute('role','button');
+ row.setAttribute('aria-label','Preview shared file');
+}
 function renderFiles(){
   const meta=State.shareMeta;
   const entries=Array.isArray(meta.wrapped_keys)?meta.wrapped_keys:[];
@@ -149,7 +158,7 @@ function renderFiles(){
   visibleEntries.forEach(({entry,idx})=>{
     const row=document.createElement('div');row.className='file-row fade-in';
     row.tabIndex=0;
-    row.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();downloadSingle(idx)}});
+    bindPreviewOpen(row,idx);
     if(State.viewMode==='grid'){
       const thumb=document.createElement('div');thumb.className='fr-thumb-wrap';
       const placeholder=document.createElement('span');placeholder.className='thumb-placeholder';placeholder.innerHTML=imageIconSvg();
@@ -171,6 +180,39 @@ function renderFiles(){
     row.appendChild(icon);row.appendChild(name);row.appendChild(date);row.appendChild(size);row.appendChild(btnWrap);list.appendChild(row);
   });
   showPanel('files');
+}
+
+function closeSharePreview(){
+ const modal=document.getElementById('share-preview-modal');
+ const stage=document.getElementById('share-preview-modal-stage');
+ if(stage)stage.replaceChildren();
+ if(modal)modal.classList.add('hidden');
+ document.body.classList.remove('share-preview-open');
+}
+function setSharePreviewStatus(entry,title,copy){
+ const stage=document.getElementById('share-preview-modal-stage');
+ if(!stage)return;
+ const icon=document.createElement('div');icon.className='share-preview-icon';icon.textContent=fileIcon(entry?.original_name||'');
+ const status=document.createElement('div');status.className='share-preview-status';
+ const h=document.createElement('h2');h.textContent=title;
+ const p=document.createElement('p');p.textContent=copy;
+ status.append(h,p);stage.replaceChildren(icon,status);
+}
+async function openSharePreview(idx){
+ const entry=State.shareMeta?.wrapped_keys?.[idx];
+ if(!entry)return;
+ const modal=document.getElementById('share-preview-modal');
+ const name=document.getElementById('share-preview-modal-name');
+ const meta=document.getElementById('share-preview-modal-meta');
+ const download=document.getElementById('share-preview-modal-download');
+ if(!modal)return;
+ if(name)name.textContent=entry.original_name||'File';
+ if(meta)meta.textContent=`Viewer${entry.size?' - '+fmtSize(entry.size):''}`;
+ if(download){download.onclick=()=>downloadSingle(idx);}
+ modal.classList.remove('hidden');
+ document.body.classList.add('share-preview-open');
+ setSharePreviewStatus(entry,'Preparing secure preview','The file decrypts locally in this browser.');
+ await loadSharePreviewIntoStage(idx,'share-preview-modal-stage');
 }
 
 function renderSinglePreview(entry,list){
@@ -496,8 +538,11 @@ function setupShareImageZoom(stage,img){
   img.addEventListener('pointercancel',stopDrag);
 }
 async function loadSinglePreview(idx){
+  await loadSharePreviewIntoStage(idx,'single-preview-stage');
+}
+async function loadSharePreviewIntoStage(idx,stageId){
   const entry=State.shareMeta?.wrapped_keys?.[idx];
-  const stage=document.getElementById('single-preview-stage');
+  const stage=document.getElementById(stageId);
   if(!entry||!stage)return;
   const mime=getEntryMime(entry);
   const previewable=mime.startsWith('image/')||mime.startsWith('video/')||mime.startsWith('audio/')||mime==='application/pdf'||mime.startsWith('text/');
@@ -610,7 +655,7 @@ async function decryptAndSave(entries){
   progressBar.style.width='100%';
   setTimeout(()=>progressPanel.style.display='none',2600);
 }
-function bindUi(){document.getElementById('pw-btn')?.addEventListener('click',handlePasswordSubmit);document.getElementById('download-all-btn')?.addEventListener('click',downloadAll);document.getElementById('share-password')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();handlePasswordSubmit()}})}
+function bindUi(){document.getElementById('pw-btn')?.addEventListener('click',handlePasswordSubmit);document.getElementById('download-all-btn')?.addEventListener('click',downloadAll);document.getElementById('share-password')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();handlePasswordSubmit()}});document.getElementById('share-preview-modal-close')?.addEventListener('click',closeSharePreview);document.getElementById('share-preview-modal')?.addEventListener('click',e=>{if(e.target?.id==='share-preview-modal')closeSharePreview()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSharePreview()})}
 if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',()=>{bindUi();init()})}else{bindUi();init()}
 
 

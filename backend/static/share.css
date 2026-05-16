@@ -22,8 +22,8 @@
 .public-signin-btn:hover svg{transform:translateX(1px);}
 .public-share-page #app-sidebar{overflow:hidden;}
 .public-share-page #app-sidebar .sb-label{margin-top:0;}
-.public-share-page .public-secure-storage{margin-top:auto!important;}
-.public-share-page .public-secure-storage .sb-e2e{border-top:0!important;margin-top:0!important;padding-top:0!important;}
+.public-share-page #view-app #app-sidebar .public-secure-storage{margin-top:auto!important;margin-bottom:4px!important;}
+.public-share-page #view-app #app-sidebar .public-secure-storage .sb-e2e{border-top:0!important;margin-top:0!important;padding-top:0!important;font-weight:500!important;}
 .public-share-page #app-content{position:relative;}
 .public-share-page .share-state{margin:auto;max-width:520px;width:min(520px,calc(100% - 32px));background:#fff;border:1px solid rgba(15,118,110,.14);border-radius:18px;box-shadow:0 10px 28px rgba(15,118,110,.065);padding:28px;text-align:center;}
 .public-share-page .state-icon{width:54px;height:54px;margin:0 auto 14px;border-radius:16px;background:#ecfdf5;color:#0f766e;display:grid;place-items:center;}
@@ -40,14 +40,15 @@
 .public-share-page .file-list-header{grid-template-columns:1fr 120px 90px 56px;}
 .public-share-page #file-list.grid-mode .file-row{min-width:0;}
 .public-share-page .thumb-placeholder svg,.public-share-page .file-icon svg{width:1em;height:1em;display:block;color:#0f766e;}
+.public-share-page .file-row{cursor:pointer;}
 .public-share-page .share-row-download{font-size:0;}
 .public-share-page .share-row-download svg{width:15px;height:15px;}
 .public-share-page .share-empty-search{padding:64px 20px;text-align:center;color:#637083;font-weight:600;}
 .public-share-page .share-signup-promo{position:fixed;right:24px;bottom:24px;z-index:120;width:330px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;padding:16px;border:1px solid rgba(15,118,110,.14);border-radius:18px;background:rgba(255,255,255,.96);box-shadow:0 18px 42px rgba(15,118,110,.10);}
 .public-share-page .promo-icon{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#ecfdf5;color:#0f766e;}
 .public-share-page .promo-icon svg{width:30px;height:30px;}
-.public-share-page .share-signup-promo h2{margin:2px 0 0;color:#06132d;font:800 15px/1.25 'Inter',system-ui,sans-serif;}
-.public-share-page .promo-cta{grid-column:1/-1;height:42px;border-radius:999px;background:#137b77;color:#fff;text-decoration:none;display:flex;align-items:center;justify-content:center;font:800 14px/1 'Inter',system-ui,sans-serif;}
+.public-share-page .share-signup-promo h2{margin:2px 0 0;color:#06132d;font:600 15px/1.25 'Inter',system-ui,sans-serif;}
+.public-share-page .promo-cta{grid-column:1/-1;height:42px;border-radius:999px;background:#137b77;color:#fff;text-decoration:none;display:flex;align-items:center;justify-content:center;font:600 14px/1 'Inter',system-ui,sans-serif;}
 .public-share-page .promo-cta:hover,.public-share-page .promo-cta:focus-visible{background:#0f6d69;outline:none;}
 .public-share-page #toast{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:200;color:#fff;background:#0D6D6E;font-size:14px;padding:10px 20px;border-radius:999px;box-shadow:0 14px 35px rgba(0,0,0,.18);}
 .public-share-page .progress-card{display:none;position:absolute;left:24px;right:24px;bottom:24px;background:#fff;border:1px solid rgba(15,118,110,.14);border-radius:16px;padding:14px;box-shadow:0 10px 28px rgba(15,118,110,.08);z-index:40;}
@@ -72,4 +73,16 @@ body.single-share-page.public-share-page .share-preview-icon{width:58px;height:5
 body.single-share-page.public-share-page .share-preview-status{text-align:center;color:#cbd5e1;}
 body.single-share-page.public-share-page .share-preview-status h2{font-size:18px;margin-bottom:8px;color:#fff;}
 body.single-share-page.public-share-page .share-single-toolbar{display:none;}
+.public-share-page .share-preview-modal{position:fixed;inset:0;z-index:180;background:rgba(6,19,45,.48);display:flex;align-items:center;justify-content:center;padding:22px;}
+.public-share-page .share-preview-modal-card{width:min(1080px,calc(100vw - 44px));height:min(720px,calc(100vh - 44px));background:#fff;border:1px solid rgba(15,118,110,.16);border-radius:20px;box-shadow:0 24px 70px rgba(6,19,45,.24);display:flex;flex-direction:column;overflow:hidden;}
+.public-share-page .share-preview-modal-head{height:62px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 16px 0 20px;border-bottom:1px solid rgba(15,118,110,.12);background:#fff;}
+.public-share-page .share-preview-modal-title{min-width:0;}
+.public-share-page .share-preview-modal-actions{display:flex;align-items:center;gap:8px;}
+.public-share-page .share-preview-modal-card .share-preview-stage{flex:1;min-height:0;background:#0b1220;display:flex;align-items:center;justify-content:center;padding:20px;color:#fff;}
+.public-share-page .share-preview-modal-card .share-preview-stage img,.public-share-page .share-preview-modal-card .share-preview-stage video,.public-share-page .share-preview-modal-card .share-preview-stage iframe{max-width:100%;max-height:100%;border:0;border-radius:12px;background:#111827;}
+.public-share-page .share-preview-modal-card .share-preview-stage audio{width:min(520px,90%);}
+.public-share-page .share-preview-modal-card .share-preview-status{text-align:center;color:#cbd5e1;}
+.public-share-page .share-preview-modal-card .share-preview-status h2{font-size:18px;margin:0 0 8px;color:#fff;}
+.public-share-page .share-preview-modal-card .share-preview-status p{margin:0;color:#cbd5e1;}
+.public-share-page .share-preview-modal-card .share-text-preview{width:100%;height:100%;overflow:auto;margin:0;padding:18px;border-radius:12px;background:#fff;color:#111827;white-space:pre-wrap;}
 @media(max-width:767px){.public-share-page .public-signin-btn{height:36px;padding:0 12px;font-size:12px;}.public-share-page .public-signin-btn .signin-icon{width:22px;height:22px;}.public-share-page .share-signup-promo{left:14px;right:14px;bottom:14px;width:auto;}.public-share-page #app-sidebar{display:none!important;}.public-share-page #app-content{padding:14px!important;}.public-share-page .file-list-header{display:none!important;}}
