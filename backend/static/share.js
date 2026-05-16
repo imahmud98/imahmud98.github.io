@@ -109,7 +109,7 @@ async function handlePasswordSubmit(){const pw=document.getElementById('share-pa
 
 function downloadIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'}
 function imageIconSvg(){return '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.4" stroke="currentColor" stroke-width="1.8"/><path d="m6.7 16 3.6-3.6a1.2 1.2 0 0 1 1.7 0l2.1 2.1.9-.9a1.2 1.2 0 0 1 1.7 0L20 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.7" cy="9" r="1.2" fill="currentColor"/></svg>'}
-function createDownloadButton(idx){const button=document.createElement('button');button.className='share-row-download';button.type='button';button.title='Download';button.setAttribute('aria-label','Download');button.innerHTML=downloadIconSvg();button.addEventListener('click',e=>{e.stopPropagation();downloadSingle(idx)});return button}
+function createDownloadButton(idx){const button=document.createElement('button');button.className='fr-act-btn share-row-download';button.type='button';button.title='Download';button.setAttribute('aria-label','Download');button.innerHTML=downloadIconSvg();button.addEventListener('click',e=>{e.stopPropagation();downloadSingle(idx)});return button}
 function renderFiles(){
   const meta=State.shareMeta;
   const entries=Array.isArray(meta.wrapped_keys)?meta.wrapped_keys:[];
@@ -121,12 +121,16 @@ function renderFiles(){
   document.getElementById('file-count').textContent=`${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}`;
   const downloadAllBtn=document.getElementById('download-all-btn');
   if(downloadAllBtn){downloadAllBtn.title=single?'Download':'Download all';downloadAllBtn.setAttribute('aria-label',single?'Download':'Download all')}
-  document.getElementById('share-list-view-btn')?.classList.toggle('active',State.viewMode==='list');
-  document.getElementById('share-grid-view-btn')?.classList.toggle('active',State.viewMode==='grid');
+  document.getElementById('share-list-view-btn')?.classList.toggle('active-nav',State.viewMode==='list');
+  document.getElementById('share-grid-view-btn')?.classList.toggle('active-nav',State.viewMode==='grid');
   const list=document.getElementById('file-list');
   list.replaceChildren();
-  list.classList.toggle('grid-mode',!single&&State.viewMode==='grid');
-  list.classList.toggle('list-mode',single||State.viewMode==='list');
+  list.className=(!single&&State.viewMode==='grid')?'grid-mode':'space-y-0.5';
+  const label=document.getElementById('share-files-label');
+  if(label){
+    label.style.display=single?'none':'';
+    label.innerHTML=single?'':`<span>Files</span><span class="count">${entries.length||meta.file_count} file${(entries.length||meta.file_count)!==1?'s':''}</span>`;
+  }
   if(single){
     renderSinglePreview(entries[0],list);
     showPanel('files');
@@ -144,12 +148,12 @@ function renderFiles(){
     return;
   }
   visibleEntries.forEach(({entry,idx})=>{
-    const row=document.createElement('div');row.className=State.viewMode==='grid'?'file-row fade-in share-file-card':'file-row fade-in share-file-list-row';
+    const row=document.createElement('div');row.className='file-row fade-in';
     row.tabIndex=0;
     row.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();downloadSingle(idx)}});
     if(State.viewMode==='grid'){
       const thumb=document.createElement('div');thumb.className='fr-thumb-wrap';
-      const placeholder=document.createElement('div');placeholder.className='thumb-placeholder';placeholder.innerHTML=imageIconSvg();
+      const placeholder=document.createElement('span');placeholder.className='thumb-placeholder';placeholder.innerHTML=imageIconSvg();
       thumb.appendChild(placeholder);
       const info=document.createElement('div');info.className='fr-info';
       const name=document.createElement('div');name.className='fr-name';name.textContent=entry.original_name||'File';
@@ -159,14 +163,13 @@ function renderFiles(){
       row.appendChild(thumb);row.appendChild(info);row.appendChild(btnWrap);list.appendChild(row);
       return;
     }
-    const main=document.createElement('div');main.className='file-main';
-    const icon=document.createElement('div');icon.className='file-icon';icon.innerHTML=imageIconSvg();
-    const name=document.createElement('div');name.className='file-name';name.textContent=entry.original_name||'File';
-    main.appendChild(icon);main.appendChild(name);
+    const icon=document.createElement('span');icon.className='thumb-placeholder';icon.innerHTML=imageIconSvg();
+    const name=document.createElement('div');name.className='fr-name';name.textContent=entry.original_name||'File';
     const date=document.createElement('div');date.className='file-date';date.textContent=fmtDate(entry.created_at||entry.updated_at||meta.created_at||'').replace(/,.*$/,'');
-    const size=document.createElement('div');size.className='file-size';size.textContent=entry.size?fmtSize(entry.size):'';
-    const btnWrap=document.createElement('div');btnWrap.id=`file-btn-${idx}`;btnWrap.appendChild(createDownloadButton(idx));
-    row.appendChild(main);row.appendChild(date);row.appendChild(size);row.appendChild(btnWrap);list.appendChild(row);
+    date.className='fr-date';
+    const size=document.createElement('div');size.className='fr-size';size.textContent=entry.size?fmtSize(entry.size):'';
+    const btnWrap=document.createElement('div');btnWrap.className='fr-acts';btnWrap.id=`file-btn-${idx}`;btnWrap.appendChild(createDownloadButton(idx));
+    row.appendChild(icon);row.appendChild(name);row.appendChild(date);row.appendChild(size);row.appendChild(btnWrap);list.appendChild(row);
   });
   showPanel('files');
 }
@@ -566,7 +569,7 @@ async function downloadAll(){
   if(!browserEntries.length)return;
   const allBtn=document.getElementById('download-all-btn');
   allBtn.disabled=true;
-  allBtn.innerHTML='<span class="spinner"></span> Downloading';
+  allBtn.innerHTML='<span class="spinner spinner-sm"></span>';
   try{await decryptAndSave(browserEntries);toast(nativeEntries.length?'Remaining files downloaded':'All files downloaded','success')}catch(e){toast('Download failed: '+e.message,'error')}finally{allBtn.disabled=false;allBtn.innerHTML=downloadIconSvg();allBtn.title=State.shareMeta?.wrapped_keys?.length===1?'Download':'Download all';allBtn.setAttribute('aria-label',allBtn.title);document.getElementById('progress-panel').style.display='none'}
 }
 async function decryptAndSave(entries){
