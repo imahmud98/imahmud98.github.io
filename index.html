@@ -274,6 +274,9 @@
     .pv-btn:hover{background:rgba(255,255,255,.14);}
     .pv-btn.primary{background:linear-gradient(135deg,var(--p),var(--acd));border-color:transparent;color:#FFFFFF;}
     .pv-btn.primary:hover{filter:brightness(.98);}
+    .pv-icon-btn{width:38px;height:38px;border:0;background:transparent;color:#E8EAED;border-radius:999px;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s,color .12s;}
+    .pv-icon-btn:hover{background:rgba(255,255,255,.14);color:#FFFFFF;}
+    .pv-icon-btn svg{width:22px;height:22px;display:block;stroke:currentColor;}
     .pv-body{flex:1;min-height:0;background:transparent;display:flex;align-items:center;justify-content:center;padding:14px 18px 20px;}
     .pv-stage{width:100%;height:100%;border-radius:0;border:none;background:transparent;overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:none;}
     .pv-content{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative;background:transparent;}
@@ -2512,7 +2515,7 @@
 #view-app #preview-modal .pv-modal-box,
 #preview-modal .pv-modal-box{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;overflow:hidden!important;}
 #view-app #preview-modal .pv-topbar,
-#preview-modal .pv-topbar{background:rgba(32,33,36,.82)!important;border-bottom:1px solid rgba(255,255,255,.08)!important;}
+#preview-modal .pv-topbar{background:transparent!important;border-bottom:0!important;}
 #view-app #preview-modal .pv-body,
 #view-app #preview-modal .pv-stage,
 #view-app #preview-modal .pv-content,
@@ -2525,6 +2528,10 @@
 #preview-modal .pv-image-wrap.is-zoomed{cursor:grab!important;}
 #view-app #preview-modal .pv-image-wrap.is-panning,
 #preview-modal .pv-image-wrap.is-panning{cursor:grabbing!important;}
+#view-app #preview-modal .pv-icon-btn,
+#preview-modal .pv-icon-btn{background:transparent!important;border:0!important;color:#f8fafc!important;}
+#view-app #preview-modal .pv-icon-btn:hover,
+#preview-modal .pv-icon-btn:hover{background:rgba(255,255,255,.14)!important;}
 </style>
 <body>
 <script>
@@ -4430,6 +4437,46 @@ function previewDownloadCurrent(){
   );
 }
 
+function previewShareCurrent(){
+  const file = PreviewState.file;
+  if (!file || file.is_shared || file._nas) {
+    toast('Sharing is available for your cloud files.', 'error');
+    return;
+  }
+  const fileId = String(file.id || '');
+  if (!fileId) return;
+  if (Array.isArray(_cloudFiles) && _cloudFiles.some(f => String(f.id) === fileId)) {
+    S.files = _cloudFiles;
+  }
+  closePreviewModal();
+  openShareDialog([fileId]);
+}
+
+function previewPrintCurrent(){
+  if (!PreviewState.file || (PreviewState.mode !== 'text_ready' && !PreviewState.objectUrl)) {
+    toast('Nothing printable is ready yet.', 'error');
+    return;
+  }
+  const file = PreviewState.file;
+  const name = esc(file.name || file.filename || 'Preview');
+  const url = PreviewState.objectUrl;
+  const win = window.open('', '_blank', 'width=960,height=720');
+  if (!win) {
+    toast('Allow popups to print this preview.', 'error');
+    return;
+  }
+  const isImage = PreviewState.mode === 'image_ready';
+  const isPdf = PreviewState.mode === 'pdf_ready';
+  const isText = PreviewState.mode === 'text_ready';
+  const body = isImage
+    ? `<img src="${url}" alt="${name}" style="max-width:100%;max-height:100vh;object-fit:contain;display:block;margin:auto;">`
+    : isPdf
+      ? `<iframe src="${url}" style="width:100%;height:100vh;border:0;"></iframe>`
+      : `<pre style="white-space:pre-wrap;word-break:break-word;font:13px/1.55 Consolas,monospace;">${esc(PreviewState.textContent || '')}</pre>`;
+  win.document.write(`<!doctype html><html><head><title>${name}</title><style>html,body{margin:0;min-height:100%;background:#fff;color:#111827;}body{display:flex;align-items:center;justify-content:center;padding:${isText ? '24px' : '0'};box-sizing:border-box;}@media print{body{padding:0;}}</style></head><body>${body}<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},250);};<\/script></body></html>`);
+  win.document.close();
+}
+
 function previewZoom(delta){
   if (PreviewState.mode !== 'image_ready') return;
   _previewSetZoom((PreviewState.zoom || 1) + delta);
@@ -4441,12 +4488,14 @@ function renderPreviewModal(){
   const metaEl = document.getElementById('preview-file-meta');
   const contentEl = document.getElementById('preview-content');
   const toolbarEl = document.getElementById('preview-image-toolbar');
+  const shareBtn = document.getElementById('preview-share-btn');
   const lbl = document.getElementById('preview-zoom-label');
   if (!nameEl || !metaEl || !contentEl || !toolbarEl) return;
 
   nameEl.textContent = file ? (file.name || file.filename || 'Untitled') : 'Preview';
   metaEl.textContent = file ? _previewMetaLine(file) : '';
   toolbarEl.classList.add('hidden');
+  if (shareBtn) shareBtn.classList.toggle('hidden', !file || !!file.is_shared || !!file._nas);
   if (lbl) lbl.textContent = Math.round(PreviewState.zoom * 100) + '%';
 
   if (PreviewState.mode === 'loading') {
@@ -13406,7 +13455,9 @@ async function revokeShare(shareId) {
         <div id="preview-file-meta" class="pv-sub"></div>
       </div>
       <div class="pv-actions">
-        <button type="button" class="pv-btn primary" data-click="previewDownloadCurrent()">Download</button>
+        <button id="preview-share-btn" type="button" class="pv-icon-btn" data-click="previewShareCurrent()" aria-label="Share" title="Share"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.5 12.5l7-4M8.5 11.5l7 4" stroke-width="1.8" stroke-linecap="round"/><circle cx="6" cy="12" r="2.5" stroke-width="1.8"/><circle cx="18" cy="7" r="2.5" stroke-width="1.8"/><circle cx="18" cy="17" r="2.5" stroke-width="1.8"/></svg></button>
+        <button type="button" class="pv-icon-btn" data-click="previewPrintCurrent()" aria-label="Print" title="Print"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 8V4h10v4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 14h10v6H7z" stroke-width="1.8" stroke-linejoin="round"/><path d="M18 12h.01" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+        <button type="button" class="pv-icon-btn" data-click="previewDownloadCurrent()" aria-label="Download" title="Download"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11" stroke-width="1.9" stroke-linecap="round"/><path d="M7.5 10.5 12 15l4.5-4.5" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke-width="1.9" stroke-linecap="round"/></svg></button>
         <button type="button" class="modal-close" data-click="closePreviewModal()" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </div>
     </div>
