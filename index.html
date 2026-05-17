@@ -5352,8 +5352,18 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     headers.set('Content-Type', thumb.mime_type || 'image/jpeg');
     if(isRelay && S.token) headers.set('Authorization', `Bearer ${S.token}`);
 
-    const res = await fetch(uploadUrl, { method: 'PUT', headers, body: thumb.blob });
-    if(!res.ok) throw new Error(`NAS thumbnail upload failed: ${res.status}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
+    let res;
+    try{
+      res = await fetch(uploadUrl, { method: 'PUT', headers, body: thumb.blob, signal: controller.signal });
+    }finally{
+      clearTimeout(timeout);
+    }
+    if(!res.ok){
+      if([429, 502, 503, 504].includes(res.status)) _nasThumbSidecarPausedUntil = Date.now() + 60000;
+      throw new Error(`NAS thumbnail upload failed: ${res.status}`);
+    }
 
     await api('POST', `/nas/thumb/${encodeURIComponent(fileId)}/register`, {
       thumbnail_path: info.thumbnail_path,
@@ -5375,6 +5385,19 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     console.info('[MPD] NAS thumbnail sidecar skipped:', e.message || e);
     return false;
   }
+}
+
+let _nasThumbSidecarInFlight = 0;
+let _nasThumbSidecarPausedUntil = 0;
+function _queueNasThumbnailSidecar(file, fileId){
+  if(!fileId || !file || !(String(file.type||'').startsWith('image/') || isImageFile(file.name))) return false;
+  if(Date.now() < _nasThumbSidecarPausedUntil) return false;
+  if(_nasThumbSidecarInFlight >= 1) return false;
+  _nasThumbSidecarInFlight++;
+  _uploadNasThumbnailSidecar(file, fileId)
+    .catch(()=>false)
+    .finally(()=>{ _nasThumbSidecarInFlight = Math.max(0, _nasThumbSidecarInFlight - 1); });
+  return true;
 }
 async function _makeEncryptedDirectThumbnail(file, dek, cfg={}){
   const policy = cfg.thumbnail_policy || {};
@@ -7801,12 +7824,7 @@ async function _uploadNasDirect(item, folderId, options={}){
         _nasStatsTs = 0;
         _nasReachTs = 0;
         const finalFileId = verified.file_id || p2pStatus.file_id || transferSession.file_id;
-        if(finalFileId){
-          await _uploadNasThumbnailSidecar(item.file, finalFileId);
-          const nasThumbKey = 'nas_' + finalFileId;
-          _thumbCache.delete(nasThumbKey);
-          _thumbFailTs.delete(nasThumbKey);
-        }
+        if(finalFileId) _queueNasThumbnailSidecar(item.file, finalFileId);
         await Promise.allSettled([loadFiles(), loadAgentDashboard(true), loadNasDeviceStatus(true)]);
         return true;
       }
@@ -7834,12 +7852,7 @@ async function _uploadNasDirect(item, folderId, options={}){
           item.status='done'; item.progress=1; renderUploadQ();
           _nasStatsTs = 0;
           _nasReachTs = 0;
-          if(finalStatus.file_id){
-            await _uploadNasThumbnailSidecar(item.file, finalStatus.file_id);
-            const nasThumbKey = 'nas_' + finalStatus.file_id;
-            _thumbCache.delete(nasThumbKey);
-            _thumbFailTs.delete(nasThumbKey);
-          }
+          if(finalStatus.file_id) _queueNasThumbnailSidecar(item.file, finalStatus.file_id);
           return true;
         }catch(e){
           if(_isNasLocalNetworkBlockedError(e)){
@@ -7856,12 +7869,7 @@ async function _uploadNasDirect(item, folderId, options={}){
               item.status='done'; item.progress=1; renderUploadQ();
               _nasStatsTs = 0;
               _nasReachTs = 0;
-              if(status.file_id){
-                await _uploadNasThumbnailSidecar(item.file, status.file_id);
-                const nasThumbKey = 'nas_' + status.file_id;
-                _thumbCache.delete(nasThumbKey);
-                _thumbFailTs.delete(nasThumbKey);
-              }
+              if(status.file_id) _queueNasThumbnailSidecar(item.file, status.file_id);
               return true;
             }
           }catch(_statusErr){}
@@ -8008,16 +8016,11 @@ async function _uploadNasDirect(item, folderId, options={}){
           rel_path:  info.rel_path,
           folder_id: folderId != null ? String(folderId) : null,
         });
-        await _uploadNasThumbnailSidecar(item.file, info.file_id);
+        _queueNasThumbnailSidecar(item.file, info.file_id);
       }catch(e){ console.warn('[MPD] NAS file register failed:', e.message); }
       item.status='done'; item.progress=1; renderUploadQ();
       _nasStatsTs = 0;
       _nasReachTs = 0;
-      if(info.file_id){
-        const nasThumbKey = 'nas_' + info.file_id;
-        _thumbCache.delete(nasThumbKey);
-        _thumbFailTs.delete(nasThumbKey);
-      }
       return true;
     }
     return false;
