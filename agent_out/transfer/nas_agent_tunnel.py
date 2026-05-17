@@ -450,11 +450,21 @@ class TunnelClient:
         self._pool        = _BoundedThreadPool(max_workers=16)
         self._p2p_manager = None
         self._p2p_poll_thread: Optional[threading.Thread] = None
+        self._extra_roots: list[Path] = []
 
     # â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def set_storage_root(self, path: Path):
         self._storage = path
+        if self._p2p_manager is not None:
+            self._p2p_manager.storage_root = path
+
+    def add_storage_root(self, path: Path):
+        p = Path(path)
+        if p != self._storage and p.exists() and p not in self._extra_roots:
+            self._extra_roots.append(p)
+        if self._p2p_manager is not None:
+            self._p2p_manager.add_storage_root(p)
 
     def start(self):
         self._thread = threading.Thread(
@@ -613,6 +623,8 @@ class TunnelClient:
                 api=self._api_client,
                 signal_sender=lambda sid, ev: self._send_p2p_signal(self._ws, sid, ev),
             )
+            for root in self._extra_roots:
+                self._p2p_manager.add_storage_root(root)
             if not self._p2p_manager.available:
                 logger.info("WebRTC P2P unavailable: %s", _webrtc_unavailable_reason())
             return self._p2p_manager
