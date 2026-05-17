@@ -263,10 +263,13 @@
     .f-label{display:block;font-size:12px;font-weight:600;color:#6B7280;margin-bottom:5px;letter-spacing:.2px;}
     .f-input{width:100%;border:1.5px solid #E2E8F0;border-radius:10px;padding:10px 13px;font-size:13.5px;font-family:'Inter',sans-serif;color:#1F2937;background:#FAFAFA;outline:none;transition:border-color .15s,box-shadow .15s;}
     .f-input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(13,109,110,.1);background:#fff;}
-    #preview-modal{background:rgba(15,15,15,.72)!important;backdrop-filter:none!important;padding:0!important;}
+    #preview-modal{background:rgba(15,15,15,.74)!important;backdrop-filter:none!important;padding:0!important;}
     #preview-modal .pv-modal-box{max-width:none!important;width:100vw!important;height:100vh!important;max-height:none!important;border-radius:0!important;display:flex;flex-direction:column;overflow:hidden!important;padding:0;background:transparent;box-shadow:none!important;}
     .pv-topbar{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(32,33,36,.88);flex-shrink:0;}
     .pv-meta{flex:1;min-width:0;}
+    .pv-title-row{display:flex;align-items:center;gap:8px;min-width:0;}
+    .pv-file-icon{width:24px;height:24px;border-radius:7px;background:rgba(255,255,255,.12);color:#E8EAED;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;}
+    .pv-file-icon svg{width:17px;height:17px;display:block;}
     .pv-name{font-size:14px;font-weight:700;color:#E8EAED;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .pv-sub{font-size:12px;color:#BDC1C6;margin-top:2px;}
     .pv-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
@@ -2511,7 +2514,7 @@
 
 /* Preview must sit over the app, not replace it with an opaque modal panel. */
 #view-app #preview-modal.modal-wrap,
-#preview-modal.modal-wrap{align-items:stretch!important;justify-content:stretch!important;padding:0!important;background:rgba(15,15,15,.58)!important;backdrop-filter:none!important;}
+#preview-modal.modal-wrap{align-items:stretch!important;justify-content:stretch!important;padding:0!important;background:rgba(15,15,15,.74)!important;backdrop-filter:none!important;}
 #view-app #preview-modal .pv-modal-box,
 #preview-modal .pv-modal-box{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;overflow:hidden!important;}
 #view-app #preview-modal .pv-topbar,
@@ -4485,6 +4488,7 @@ function previewZoom(delta){
 function renderPreviewModal(){
   const file = PreviewState.file;
   const nameEl = document.getElementById('preview-file-name');
+  const iconEl = document.getElementById('preview-file-icon');
   const metaEl = document.getElementById('preview-file-meta');
   const contentEl = document.getElementById('preview-content');
   const toolbarEl = document.getElementById('preview-image-toolbar');
@@ -4493,6 +4497,9 @@ function renderPreviewModal(){
   if (!nameEl || !metaEl || !contentEl || !toolbarEl) return;
 
   nameEl.textContent = file ? (file.name || file.filename || 'Untitled') : 'Preview';
+  if (iconEl) {
+    iconEl.innerHTML = file ? fileIcon(file.name || file.filename || '') : fileIcon('');
+  }
   metaEl.textContent = file ? _previewMetaLine(file) : '';
   toolbarEl.classList.add('hidden');
   if (shareBtn) shareBtn.classList.toggle('hidden', !file || !!file.is_shared || !!file._nas);
@@ -13451,7 +13458,7 @@ async function revokeShare(shareId) {
   <div class="modal-box pv-modal-box">
     <div class="pv-topbar">
       <div class="pv-meta">
-        <div id="preview-file-name" class="pv-name">Preview</div>
+        <div class="pv-title-row"><span id="preview-file-icon" class="pv-file-icon" aria-hidden="true"></span><div id="preview-file-name" class="pv-name">Preview</div></div>
         <div id="preview-file-meta" class="pv-sub"></div>
       </div>
       <div class="pv-actions">
