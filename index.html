@@ -10513,6 +10513,18 @@ function renderSharedWithMe(){
     </div>`).join('')}`;
   }
 }
+function filesEmptyHtml(message){
+  var copy = message || 'Choose Cloud or a computer, then upload files. They will appear here.';
+  return '<div class="cloud-empty-panel" role="status">'
+    + '<div class="cloud-empty-inner">'
+    + '<div class="cloud-empty-icon" aria-hidden="true">'
+    + '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5h6l1.8 2h9.2v8.5a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5V6.5Z"/><path d="M12 11v5"/><path d="M9.8 13.2 12 11l2.2 2.2"/></svg>'
+    + '</div>'
+    + '<div class="cloud-empty-title">No files yet</div>'
+    + '<div class="cloud-empty-copy">' + esc(copy) + '</div>'
+    + '</div>'
+    + '</div>';
+}
 function renderFiles(){
   const el=document.getElementById('file-list');if(!el)return;
   // â”€â”€ Files section label (mobile) â”€â”€
@@ -10525,7 +10537,10 @@ function renderFiles(){
   }
   if(!S.files.length&&!S.folders.length){
     filesLabelEl.style.display='none';
-    el.innerHTML=`<div class="text-center py-16 text-gray-400"><div class="text-5xl mb-3">??</div><div class="text-sm">Empty - upload files or create a folder</div></div>`;return;
+    el.className='';
+    el.style.cssText='';
+    el.innerHTML=filesEmptyHtml();
+    return;
   }
   if(!S.files.length){
     filesLabelEl.style.display='none';
@@ -12595,7 +12610,17 @@ async function revokeShare(shareId) {
           ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave()"
           style="padding:8px 24px 24px;">
           <div id="folder-list" class="mb-5"></div>
-          <div id="file-list" class="space-y-0.5"></div>
+          <div id="file-list">
+            <div class="cloud-empty-panel" role="status">
+              <div class="cloud-empty-inner">
+                <div class="cloud-empty-icon" aria-hidden="true">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5h6l1.8 2h9.2v8.5a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5V6.5Z"/><path d="M12 11v5"/><path d="M9.8 13.2 12 11l2.2 2.2"/></svg>
+                </div>
+                <div class="cloud-empty-title">No files yet</div>
+                <div class="cloud-empty-copy">Choose Cloud or a computer, then upload files. They will appear here.</div>
+              </div>
+            </div>
+          </div>
           <div class="hidden md:block text-center text-xs mt-10" style="color:var(--mute)">
             Drop files anywhere to upload - Free: 15 MB/file, 30 files/batch - Premium: unlimited
           </div>
