@@ -5331,10 +5331,11 @@ async function _makeImageThumbnailBlob(file, maxPx=180, quality=0.62){
   }
 }
 
-async function _uploadNasThumbnailSidecar(file, fileId){
+async function _uploadNasThumbnailSidecar(file, fileId, item=null){
   // NAS thumbnails are user-owned storage sidecars stored on the user's NAS.
   if(!fileId || !file || !(String(file.type||'').startsWith('image/') || isImageFile(file.name))) return false;
   try{
+    if(item){ item.thumbnailStatus = 'preparing'; renderUploadQ(); }
     const thumb = await _makeImageThumbnailBlob(file, 220, 0.68).catch(()=>null);
     if(!thumb || !thumb.blob || thumb.blob.size <= 0 || thumb.blob.size > 80 * 1024) return false;
     const qs = new URLSearchParams({ mime_type: thumb.mime_type || 'image/jpeg' }).toString();
@@ -5351,6 +5352,7 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     Object.entries(info.headers || {}).forEach(([k, v]) => headers.set(k, v));
     headers.set('Content-Type', thumb.mime_type || 'image/jpeg');
     if(isRelay && S.token) headers.set('Authorization', `Bearer ${S.token}`);
+    if(item){ item.thumbnailStatus = 'uploading'; renderUploadQ(); }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4500);
@@ -5370,6 +5372,7 @@ async function _uploadNasThumbnailSidecar(file, fileId){
       thumbnail_size: thumb.blob.size,
       mime_type: thumb.mime_type || 'image/jpeg'
     });
+    if(item){ item.thumbnailStatus = 'done'; renderUploadQ(); }
     const nasThumbKey = 'nas_' + fileId;
     _thumbCache.delete(nasThumbKey);
     _thumbFailTs.delete(nasThumbKey);
@@ -5382,6 +5385,7 @@ async function _uploadNasThumbnailSidecar(file, fileId){
     setTimeout(applyThumbnails, 80);
     return true;
   }catch(e){
+    if(item){ item.thumbnailStatus = 'skipped'; item.thumbnailError = e.message || String(e); renderUploadQ(); }
     console.info('[MPD] NAS thumbnail sidecar skipped:', e.message || e);
     return false;
   }
@@ -5389,14 +5393,28 @@ async function _uploadNasThumbnailSidecar(file, fileId){
 
 let _nasThumbSidecarInFlight = 0;
 let _nasThumbSidecarPausedUntil = 0;
-function _queueNasThumbnailSidecar(file, fileId){
+function _queueNasThumbnailSidecar(file, fileId, item=null){
   if(!fileId || !file || !(String(file.type||'').startsWith('image/') || isImageFile(file.name))) return false;
   if(Date.now() < _nasThumbSidecarPausedUntil) return false;
   if(_nasThumbSidecarInFlight >= 1) return false;
   _nasThumbSidecarInFlight++;
-  _uploadNasThumbnailSidecar(file, fileId)
+  _uploadNasThumbnailSidecar(file, fileId, item)
     .catch(()=>false)
     .finally(()=>{ _nasThumbSidecarInFlight = Math.max(0, _nasThumbSidecarInFlight - 1); });
+  return true;
+}
+async function _finishNasUploadWithThumbnail(item, fileId){
+  if(!item) return false;
+  if(fileId && item.file && (String(item.file.type||'').startsWith('image/') || isImageFile(item.file.name))){
+    item.status = 'thumbnailing';
+    item.progress = 1;
+    item.thumbnailStatus = item.thumbnailStatus || 'queued';
+    renderUploadQ();
+    await _uploadNasThumbnailSidecar(item.file, fileId, item);
+  }
+  item.status='done';
+  item.progress=1;
+  renderUploadQ();
   return true;
 }
 async function _makeEncryptedDirectThumbnail(file, dek, cfg={}){
@@ -7820,11 +7838,10 @@ async function _uploadNasDirect(item, folderId, options={}){
         if(!verified || verified.status !== 'completed'){
           throw new Error((verified && verified.error_detail) || 'NAS P2P upload metadata was not finalized');
         }
-        item.status='done'; item.progress=1; renderUploadQ();
         _nasStatsTs = 0;
         _nasReachTs = 0;
         const finalFileId = verified.file_id || p2pStatus.file_id || transferSession.file_id;
-        if(finalFileId) _queueNasThumbnailSidecar(item.file, finalFileId);
+        await _finishNasUploadWithThumbnail(item, finalFileId);
         await Promise.allSettled([loadFiles(), loadAgentDashboard(true), loadNasDeviceStatus(true)]);
         return true;
       }
@@ -7849,10 +7866,9 @@ async function _uploadNasDirect(item, folderId, options={}){
         console.info(`[MPD] NAS upload via ${_nasUploadViaLabel(transferSession)}`);
       try{
         const finalStatus = await _uploadNasDirectSession(item, transferSession);
-          item.status='done'; item.progress=1; renderUploadQ();
           _nasStatsTs = 0;
           _nasReachTs = 0;
-          if(finalStatus.file_id) _queueNasThumbnailSidecar(item.file, finalStatus.file_id);
+          await _finishNasUploadWithThumbnail(item, finalStatus.file_id);
           return true;
         }catch(e){
           if(_isNasLocalNetworkBlockedError(e)){
@@ -7866,10 +7882,9 @@ async function _uploadNasDirect(item, folderId, options={}){
           try{
             const status = await _getNasTransferSessionStatus(transferSession.session_id);
             if(status && status.status === 'completed'){
-              item.status='done'; item.progress=1; renderUploadQ();
               _nasStatsTs = 0;
               _nasReachTs = 0;
-              if(status.file_id) _queueNasThumbnailSidecar(item.file, status.file_id);
+              await _finishNasUploadWithThumbnail(item, status.file_id);
               return true;
             }
           }catch(_statusErr){}
@@ -8016,9 +8031,9 @@ async function _uploadNasDirect(item, folderId, options={}){
           rel_path:  info.rel_path,
           folder_id: folderId != null ? String(folderId) : null,
         });
-        _queueNasThumbnailSidecar(item.file, info.file_id);
+        await _finishNasUploadWithThumbnail(item, info.file_id);
       }catch(e){ console.warn('[MPD] NAS file register failed:', e.message); }
-      item.status='done'; item.progress=1; renderUploadQ();
+      if(item.status !== 'done'){ item.status='done'; item.progress=1; renderUploadQ(); }
       _nasStatsTs = 0;
       _nasReachTs = 0;
       return true;
@@ -9961,6 +9976,10 @@ function fileIcon(n){
 function isImageFile(n){return/\.(jpg|jpeg|png|gif|webp|heic|heif)$/i.test(n||'');}
 function stIcon(s,pct){
   if(s==='pending')return`<span class="text-gray-400 text-xs">Waiting</span>`;
+  if(s==='thumbnailing')return`<div class="flex flex-col items-end gap-1 min-w-[84px]">
+      <span class="text-xs text-teal-700 font-medium">100%</span>
+      <span class="text-[11px] text-gray-400">Thumbnail</span>
+    </div>`;
   if(s==='uploading'||s==='downloading'){
     const p=Math.round((pct||0)*100);
     return`<div class="flex flex-col items-end gap-1 min-w-[60px]">
