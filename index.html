@@ -2505,6 +2505,26 @@
 /* Pockio toolbar polish: keep Move action proportionate with the other file actions. */
 #view-app #tb-move{width:40px!important;height:40px!important;border-radius:50%!important;min-width:40px!important;}
 #view-app #tb-move svg{width:18px!important;height:18px!important;}
+
+/* Preview must sit over the app, not replace it with an opaque modal panel. */
+#view-app #preview-modal.modal-wrap,
+#preview-modal.modal-wrap{align-items:stretch!important;justify-content:stretch!important;padding:0!important;background:rgba(15,15,15,.58)!important;backdrop-filter:none!important;}
+#view-app #preview-modal .pv-modal-box,
+#preview-modal .pv-modal-box{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;overflow:hidden!important;}
+#view-app #preview-modal .pv-topbar,
+#preview-modal .pv-topbar{background:rgba(32,33,36,.82)!important;border-bottom:1px solid rgba(255,255,255,.08)!important;}
+#view-app #preview-modal .pv-body,
+#view-app #preview-modal .pv-stage,
+#view-app #preview-modal .pv-content,
+#preview-modal .pv-body,
+#preview-modal .pv-stage,
+#preview-modal .pv-content{background:transparent!important;border:0!important;box-shadow:none!important;}
+#view-app #preview-modal .pv-image-wrap,
+#preview-modal .pv-image-wrap{cursor:zoom-in!important;}
+#view-app #preview-modal .pv-image-wrap.is-zoomed,
+#preview-modal .pv-image-wrap.is-zoomed{cursor:grab!important;}
+#view-app #preview-modal .pv-image-wrap.is-panning,
+#preview-modal .pv-image-wrap.is-panning{cursor:grabbing!important;}
 </style>
 <body>
 <script>
