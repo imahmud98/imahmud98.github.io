@@ -2399,6 +2399,43 @@
 #view-app #cloud-files-label.gd-section-label .count{margin-left:auto;color:#9aa4b2 !important;font-size:12px !important;font-weight:500 !important;letter-spacing:0 !important;text-transform:none !important;}
 #view-app #cloud-file-list.grid-mode{grid-template-columns:repeat(auto-fill,minmax(160px,1fr)) !important;gap:10px !important;padding:12px !important;background:transparent !important;}
 #view-app #section-cloud .tb-act,#view-app #section-cloud .tb-sort-btn,#view-app #section-cloud .vt-btn{box-shadow:none !important;}
+#view-app .cloud-empty-panel{
+  min-height:clamp(300px,52vh,560px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:28px 16px;
+  color:#64748b;
+}
+#view-app .cloud-empty-inner{
+  width:min(440px,100%);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:12px;
+  text-align:center;
+}
+#view-app .cloud-empty-icon{
+  width:56px;
+  height:56px;
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#0f766e;
+  background:#ecfdf5;
+  border:1px solid rgba(20,184,166,.22);
+}
+#view-app .cloud-empty-title{
+  font-size:15px;
+  font-weight:700;
+  color:#17324d;
+}
+#view-app .cloud-empty-copy{
+  font-size:13px;
+  line-height:1.55;
+  color:#64748b;
+}
 #view-app .btn-primary,#view-app button.btn-primary,#view-app .primary-btn{background:linear-gradient(180deg,#20c7b7,#0f9d92) !important;box-shadow:0 10px 22px rgba(20,184,166,.18) !important;}
 #view-app .btn-primary:hover,#view-app button.btn-primary:hover,#view-app .primary-btn:hover{box-shadow:0 14px 30px rgba(20,184,166,.23) !important;}
 #view-app .hd-tier.premium,#view-app .mob-drawer-user-tier.premium{border-color:rgba(20,184,166,.20) !important;color:#0f766e !important;background:linear-gradient(180deg,#ecfdf5,#fff) !important;}
@@ -3106,12 +3143,40 @@ function copyRefCode(){
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // DASHBOARD (free vs premium)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function parseStorageHuman(s){
+  if(!s||s==='?')return 0;
+  const m=String(s).match(/([\d.]+)\s*(B|KB|MB|GB|TB)/i);
+  if(!m)return 0;
+  const v=parseFloat(m[1]);
+  const u=m[2].toUpperCase();
+  const map={B:1,KB:1024,MB:1048576,GB:1073741824,TB:1099511627776};
+  return v*(map[u]||1);
+}
+
+async function refreshStorageFromAuth(){
+  try{
+    const me=S.user||await api('GET','/auth/me');
+    if(me)S.user=me;
+    const storage=me&&me.storage?me.storage:{};
+    const usedB=typeof storage.used_bytes==='number'?storage.used_bytes:parseStorageHuman(storage.used_human);
+    const quotaB=typeof storage.quota_bytes==='number'?storage.quota_bytes:parseStorageHuman(storage.quota_human);
+    const tier=me?.tier||me?.plan||storage.tier||S._storageTier||'free';
+    updateStorageUI(usedB, quotaB, tier);
+  }catch(e){console.warn('Storage fallback load failed:',e);}
+}
+
 async function loadDashboard(){
   try{
     const d=await api('GET','/agent/dashboard');
     if(!d)return;
     renderDashboard(d);
-  }catch(e){console.warn('Dashboard load failed:',e);}
+    const storage=d.storage||{};
+    const quotaB=typeof storage.quota_bytes==='number'?storage.quota_bytes:parseStorageHuman(storage.quota_human);
+    if(!quotaB)refreshStorageFromAuth().catch(()=>{});
+  }catch(e){
+    console.warn('Dashboard load failed:',e);
+    refreshStorageFromAuth().catch(()=>{});
+  }
 }
 
 // Poll dashboard until storage value actually changes (max attempts)
@@ -3296,19 +3361,9 @@ function renderDashboard(d){
   // â”€â”€ Sync sidebar + mobile storage card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   (function syncSidebarStorage(){
     // Parse human-readable size string into bytes
-    function parseHuman(s){
-      if(!s||s==='?')return 0;
-      const m=String(s).match(/([\d.]+)\s*(B|KB|MB|GB|TB)/i);
-      if(!m)return 0;
-      const v=parseFloat(m[1]);
-      const u=m[2].toUpperCase();
-      const map={B:1,KB:1024,MB:1048576,GB:1073741824,TB:1099511627776};
-      return v*(map[u]||1);
-    }
-
     // Get values from API response
-    const usedB  = typeof storage.used_bytes==='number'  ? storage.used_bytes  : parseHuman(storage.used_human);
-    const quotaB = typeof storage.quota_bytes==='number' ? storage.quota_bytes : parseHuman(storage.quota_human);
+    const usedB  = typeof storage.used_bytes==='number'  ? storage.used_bytes  : parseStorageHuman(storage.used_human);
+    const quotaB = typeof storage.quota_bytes==='number' ? storage.quota_bytes : parseStorageHuman(storage.quota_human);
 
     // Seed delta tracker with real byte values (this is what makes applyStorageDelta work)
     S._storageUsed  = usedB;
@@ -8249,6 +8304,19 @@ function renderCloudSelBar(){
     + '</div>';
 }
 
+function cloudEmptyHtml(message){
+  var copy = message || 'Upload files to cloud storage and they will appear here.';
+  return '<div class="cloud-empty-panel" role="status">'
+    + '<div class="cloud-empty-inner">'
+    + '<div class="cloud-empty-icon" aria-hidden="true">'
+    + '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H8a6 6 0 1 1 5.5-8.4A4.8 4.8 0 1 1 17.5 19Z"/><path d="M12 10v6"/><path d="M9.5 12.5 12 10l2.5 2.5"/></svg>'
+    + '</div>'
+    + '<div class="cloud-empty-title">No cloud files</div>'
+    + '<div class="cloud-empty-copy">' + esc(copy) + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
 async function cloudSelDownload(){
   var files = _cloudFiles.filter(function(f){ return _cloudSelIds.has(String(f.id)); });
   for(var i = 0; i < files.length; i++){
@@ -8311,11 +8379,7 @@ function renderCloudFileList(){
     filesLabelEl.style.display = 'none';
     el.className = '';
     el.style.cssText = '';
-    el.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;padding:48px 16px;gap:10px">'
-      + '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" stroke-width="1.3" stroke-linecap="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>'
-      + '<div style="font-size:14px;font-weight:600;color:var(--sub)">No cloud files yet</div>'
-      + '<div style="font-size:12.5px;color:var(--mute);text-align:center;line-height:1.6">Files you upload to cloud will appear here</div>'
-      + '</div>';
+    el.innerHTML = cloudEmptyHtml();
     return;
   }
 
@@ -8429,7 +8493,9 @@ async function loadCloudFiles(){
   const el = document.getElementById('cloud-file-list');
   if(!el) return;
   el.style.display = 'block';
-  el.innerHTML = '<div style="text-align:center;padding:48px;color:var(--mute)"><span class="spinner"></span> Loading...</div>';
+  el.className = '';
+  el.style.cssText = '';
+  el.innerHTML = '<div class="cloud-empty-panel" role="status"><div class="cloud-empty-inner"><span class="spinner"></span><div class="cloud-empty-copy">Loading cloud files...</div></div></div>';
   try{
     // Fetch root files + all folder files to show everything in cloud
     const [rootResp, foldersResp] = await Promise.all([
@@ -8464,7 +8530,9 @@ async function loadCloudFiles(){
     renderCloudSelBar();
     renderCloudFileList();
   }catch(e){
-    el.innerHTML = '<div style="text-align:center;padding:48px;color:#EF4444">Failed to load cloud files</div>';
+    el.className = '';
+    el.style.cssText = '';
+    el.innerHTML = cloudEmptyHtml('Cloud files could not be loaded. Try again in a moment.');
   }
 }
 
@@ -12669,7 +12737,17 @@ async function revokeShare(shareId) {
         <div id="cloud-drop-zone" class="drop-zone scrollable flex-1"
           ondrop="handleDropCloud(event)" ondragover="event.preventDefault()" ondragleave="event.preventDefault()"
           style="padding:8px 24px 24px;">
-          <div id="cloud-file-list"></div>
+          <div id="cloud-file-list">
+            <div class="cloud-empty-panel" role="status">
+              <div class="cloud-empty-inner">
+                <div class="cloud-empty-icon" aria-hidden="true">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H8a6 6 0 1 1 5.5-8.4A4.8 4.8 0 1 1 17.5 19Z"/><path d="M12 10v6"/><path d="M9.5 12.5 12 10l2.5 2.5"/></svg>
+                </div>
+                <div class="cloud-empty-title">No cloud files</div>
+                <div class="cloud-empty-copy">Upload files to cloud storage and they will appear here.</div>
+              </div>
+            </div>
+          </div>
           <div class="hidden md:block text-center text-xs mt-10" style="color:var(--mute)">Drop files here to upload to cloud · End-to-end encrypted</div>
         </div>
       </div>
