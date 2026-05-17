@@ -7256,8 +7256,9 @@ function _nasUploadViaLabel(session){
   return 'direct transfer session';
 }
 
-async function _waitForNasTransferSession(sessionId){
-  for(let attempt = 0; attempt < 60; attempt++){
+async function _waitForNasTransferSession(sessionId, opts = {}){
+  const maxAttempts = Number(opts.maxAttempts || 180);
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
     const status = await _getNasTransferSessionStatus(sessionId);
     if(status && ['completed','failed','aborted','expired'].includes(status.status)) return status;
     await _sleep(attempt < 20 ? 1500 : 2500);
